@@ -23,4 +23,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
 
 LABEL io.hass.version="0.1.1" \
       io.hass.type="addon" \
-      io.hass.arch="aarch64|amd64|armv7"
+      io.hass.arch="aarch64|amd64"
