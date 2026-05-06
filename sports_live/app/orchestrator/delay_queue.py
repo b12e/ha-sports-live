@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import heapq
 import itertools
 from dataclasses import dataclass, field
@@ -69,10 +70,8 @@ class DelayQueue(Generic[T]):
                     heapq.heappop(self._heap)
                     return head.payload
                 # Wait either until head is due or until we're notified.
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._cv.wait(), timeout=wait)
-                except asyncio.TimeoutError:
-                    pass
 
     def snapshot(self) -> list[float]:
         """Returns the current wall-clock play_at timestamps for each queued item."""

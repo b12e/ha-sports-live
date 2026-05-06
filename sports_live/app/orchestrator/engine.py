@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
+from .. import state_store
 from ..colors.resolver import ColorResolver
 from ..effects.catalog import KIND_TO_EFFECT
 from ..effects.runtime import EffectRuntime
@@ -154,6 +157,17 @@ class Orchestrator:
                 log.warning("scene capture failed: %s", e)
                 self._captured_scene = []
 
+            # Persist enough to recover on ungraceful restart.
+            persisted = state_store.load()
+            persisted["active"] = {
+                "match_id": summary.id,
+                "lights": list(self._lights),
+                "tv_delay_s": tv_delay_s,
+                "captured_scene": self._captured_scene,
+                "started_at": datetime.now(UTC).isoformat(),
+            }
+            state_store.save(persisted)
+
             await self._reassert_ambient()
 
             self._provider_task = asyncio.create_task(self._provider_loop())
@@ -169,16 +183,12 @@ class Orchestrator:
                     task.cancel()
             for task in (self._provider_task, self._dispatch_task):
                 if task is not None:
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
                         await task
-                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                        pass
             self._provider_task = None
             self._dispatch_task = None
-            try:
+            with contextlib.suppress(Exception):
                 await self._provider.aclose()
-            except Exception:  # noqa: BLE001
-                pass
             self._provider = None
 
             if restore and self._captured_scene:
@@ -186,6 +196,11 @@ class Orchestrator:
                     await self._ha.restore_scene(self._captured_scene)
                 except Exception as e:  # noqa: BLE001
                     log.warning("scene restore failed: %s", e)
+            # Clear persistent active record now that we've shut down cleanly.
+            persisted = state_store.load()
+            if "active" in persisted:
+                persisted.pop("active", None)
+                state_store.save(persisted)
             self._captured_scene = None
             self._summary = None
             self._lights = []
@@ -214,7 +229,6 @@ class Orchestrator:
 
     async def _handle_event(self, event: MatchEvent) -> None:
         assert self._summary is not None
-        prev_state = self._state
         self._state = apply_event(self._state, event)
         self._last_event = event
         log.info(

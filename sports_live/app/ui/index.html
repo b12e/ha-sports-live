@@ -9,20 +9,103 @@
 <body>
   <header>
     <h1>Sports Live</h1>
-    <span id="status" class="status status-pending">connecting…</span>
+    <div class="header-right">
+      <span id="phase-pill" class="status status-pending">idle</span>
+      <span id="status" class="status status-pending">connecting…</span>
+    </div>
   </header>
+
   <main>
-    <section class="card">
-      <h2>Hello</h2>
-      <p>The add-on is running. The match-control UI lands in M5.</p>
+
+    <!-- LIVE STATUS PANEL (only when running) -->
+    <section id="live" class="card hidden">
+      <h2>Live</h2>
+      <div class="score-row">
+        <span class="team-name" id="home-name">Home</span>
+        <span id="home-score" class="score">0</span>
+        <span class="dash">—</span>
+        <span id="away-score" class="score">0</span>
+        <span class="team-name" id="away-name">Away</span>
+      </div>
       <dl>
-        <dt>Backend health</dt>
-        <dd><code id="health">checking…</code></dd>
-        <dt>Version</dt>
-        <dd><code id="version">—</code></dd>
+        <dt>Phase</dt><dd><code id="phase">—</code></dd>
+        <dt>Last event</dt><dd><code id="last-event">—</code></dd>
+        <dt>Ambient</dt><dd><span id="ambient-swatch" class="swatch"></span> <code id="ambient-rgb">—</code></dd>
+        <dt>Pending</dt><dd><code id="pending">0</code></dd>
+        <dt>TV delay</dt><dd><code id="tv-delay-live">0</code> s</dd>
       </dl>
+      <div class="row">
+        <button id="kill-switch" class="danger">Stop &amp; restore lights</button>
+      </div>
     </section>
+
+    <!-- MOCK INJECTORS (only when running on mock) -->
+    <section id="mock" class="card hidden">
+      <h2>Inject mock event</h2>
+      <div class="inject-grid">
+        <button data-kind="goal"           data-side="home">Goal HOME</button>
+        <button data-kind="goal"           data-side="away">Goal AWAY</button>
+        <button data-kind="yellow_card"    data-side="home">Yellow HOME</button>
+        <button data-kind="yellow_card"    data-side="away">Yellow AWAY</button>
+        <button data-kind="red_card"       data-side="home">Red HOME</button>
+        <button data-kind="red_card"       data-side="away">Red AWAY</button>
+        <button data-kind="penalty_awarded" data-side="home">Pen HOME</button>
+        <button data-kind="penalty_awarded" data-side="away">Pen AWAY</button>
+        <button data-kind="var_review">VAR</button>
+        <button data-kind="big_chance"     data-side="home">Big chance</button>
+        <button data-kind="kickoff">Kickoff</button>
+        <button data-kind="halftime">Halftime</button>
+        <button data-kind="fulltime">Fulltime</button>
+      </div>
+    </section>
+
+    <!-- SETUP PANEL (only when not running) -->
+    <section id="setup" class="card">
+      <h2>Set up a match</h2>
+
+      <label>Provider
+        <select id="provider">
+          <option value="sofascore">Sofascore (live)</option>
+          <option value="mock">Mock (manual events)</option>
+          <option value="replay">Replay (JSONL)</option>
+        </select>
+      </label>
+
+      <label id="search-row">Search
+        <input id="q" type="search" placeholder="Belgium, France, Real Madrid…" autocomplete="off">
+      </label>
+
+      <label id="replay-row" class="hidden">Replay file path
+        <input id="replay-path" type="text" placeholder="/share/replay-belgium-canada.jsonl">
+      </label>
+
+      <div id="results" class="results"></div>
+
+      <div id="picked" class="picked hidden">
+        <p>Selected: <strong id="picked-label">—</strong> <button id="unpick" class="link">change</button></p>
+      </div>
+
+      <h3>Lights</h3>
+      <p class="muted">Pick the entities Sports Live should drive. Only RGB-capable lights are useful.</p>
+      <div id="lights" class="lights"></div>
+
+      <label>TV delay
+        <input id="tv-delay" type="range" min="0" max="60" step="1" value="0">
+        <span><code id="tv-delay-readout">0</code> s</span>
+      </label>
+
+      <label class="row-inline">
+        <input id="dry-run" type="checkbox">
+        Dry-run (log effects instead of touching lights)
+      </label>
+
+      <div class="row">
+        <button id="start" class="primary" disabled>Start</button>
+      </div>
+    </section>
+
   </main>
+
   <script src="./ui/app.js"></script>
 </body>
 </html>

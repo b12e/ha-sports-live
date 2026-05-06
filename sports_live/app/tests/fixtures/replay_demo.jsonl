@@ -1,0 +1,12 @@
+{"ts_offset_s": 0,   "kind": "kickoff"}
+{"ts_offset_s": 6,   "kind": "yellow_card", "side": "away", "minute": 12}
+{"ts_offset_s": 18,  "kind": "big_chance",  "side": "home", "minute": 23}
+{"ts_offset_s": 24,  "kind": "goal",        "side": "home", "minute": 28, "score_home": 1, "score_away": 0}
+{"ts_offset_s": 38,  "kind": "halftime"}
+{"ts_offset_s": 50,  "kind": "kickoff"}
+{"ts_offset_s": 62,  "kind": "var_review",  "minute": 56}
+{"ts_offset_s": 68,  "kind": "penalty_awarded", "side": "away", "minute": 58}
+{"ts_offset_s": 74,  "kind": "penalty_goal", "side": "away", "minute": 59, "score_home": 1, "score_away": 1}
+{"ts_offset_s": 88,  "kind": "red_card",    "side": "home", "minute": 70}
+{"ts_offset_s": 102, "kind": "goal",        "side": "away", "minute": 81, "score_home": 1, "score_away": 2}
+{"ts_offset_s": 116, "kind": "fulltime"}

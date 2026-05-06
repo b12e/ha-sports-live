@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .. import __version__
+from .. import __version__, state_store
 from ..colors.resolver import ColorResolver
 from ..ha_client import HAClient
 from ..orchestrator.engine import Orchestrator
@@ -20,7 +19,6 @@ from ..providers.base import EventKind, MatchEvent, Side
 from ..providers.mock import MockProvider
 from ..providers.replay import ReplayProvider
 from ..providers.sofascore import SofascoreProvider
-from .. import state_store
 from ..settings import Settings
 
 log = logging.getLogger(__name__)
@@ -58,6 +56,24 @@ def create_app(settings: Settings) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Boot-time recovery: if the previous run died without graceful shutdown,
+        # `active` will still be present in /data/state.json. Restore those lights
+        # to their pre-match state and clear the record. We don't auto-resume
+        # match tracking — the user reselects via the UI.
+        recovered = state_store.load()
+        active = recovered.get("active")
+        if active and active.get("captured_scene"):
+            log.info(
+                "recovering: restoring %d lights captured at %s",
+                len(active["captured_scene"]),
+                active.get("started_at"),
+            )
+            try:
+                await ha.restore_scene(active["captured_scene"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("recovery restore failed: %s", e)
+            recovered.pop("active", None)
+            state_store.save(recovered)
         log.info("api ready")
         try:
             yield
@@ -92,7 +108,7 @@ def create_app(settings: Settings) -> FastAPI:
         try:
             states = await ha.list_lights()
         except Exception as e:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"HA unreachable: {e}")
+            raise HTTPException(status_code=502, detail=f"HA unreachable: {e}") from e
         return [
             {
                 "entity_id": s["entity_id"],
@@ -139,7 +155,7 @@ def create_app(settings: Settings) -> FastAPI:
             summary = await prov.get_match(req.match_id)
         except Exception as e:  # noqa: BLE001
             await prov.aclose()
-            raise HTTPException(status_code=502, detail=f"match lookup failed: {e}")
+            raise HTTPException(status_code=502, detail=f"match lookup failed: {e}") from e
 
         orchestrator.set_dry_run(req.dry_run)
         try:
@@ -157,7 +173,7 @@ def create_app(settings: Settings) -> FastAPI:
             "lights": req.lights,
             "tv_delay_s": req.tv_delay_s,
             "dry_run": req.dry_run,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         }
         state_store.save(persisted)
 
@@ -200,7 +216,7 @@ def create_app(settings: Settings) -> FastAPI:
         if not isinstance(prov, MockProvider):
             raise HTTPException(status_code=400, detail="not running on mock provider")
         ev = MatchEvent(
-            id=f"mock-{datetime.now(timezone.utc).timestamp()}",
+            id=f"mock-{datetime.now(UTC).timestamp()}",
             kind=req.kind,
             side=req.side,
             minute=req.minute,

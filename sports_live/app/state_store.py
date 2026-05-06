@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -28,8 +29,6 @@ def save(data: dict[str, Any]) -> None:
             json.dump(data, fh, indent=2, sort_keys=True)
         os.replace(tmp_path, STATE_PATH)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise

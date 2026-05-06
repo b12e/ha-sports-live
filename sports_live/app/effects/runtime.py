@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable
 
 from ..ha_client import HAClient
 from .schemas import Effect, Step
@@ -135,7 +135,7 @@ class EffectRuntime:
                 try:
                     await asyncio.wait_for(cancel_event.wait(), timeout=wait_ms / 1000.0)
                     return  # cancelled mid-step
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
         finally:
             async with self._lock:

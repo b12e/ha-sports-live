@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from datetime import datetime, timezone
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import httpx
 
@@ -106,7 +106,7 @@ def _to_summary(event_payload: dict) -> MatchSummary:
         competition=(event_payload.get("tournament") or {}).get("name", ""),
         home=home,
         away=away,
-        kickoff_utc=datetime.fromtimestamp(event_payload["startTimestamp"], tz=timezone.utc),
+        kickoff_utc=datetime.fromtimestamp(event_payload["startTimestamp"], tz=UTC),
         status=status,
         phase=_phase(status),
         score_home=(event_payload.get("homeScore") or {}).get("current", 0) or 0,
@@ -165,8 +165,9 @@ class SofascoreProvider(BaseProvider):
         return r.status_code, r.json(), new_etag
 
     async def search_matches(self, query: str, *, competition: str | None = None) -> list[MatchSummary]:
-        # Sofascore's open search endpoint. `type=events` filters to fixtures.
-        _, body, _ = await self._get(f"/search/all?q={httpx.QueryParams({'q': query})['q']}")
+        # Sofascore's open search endpoint. We filter to event-type results.
+        from urllib.parse import quote
+        _, body, _ = await self._get(f"/search/all?q={quote(query)}")
         if not body:
             return []
         out: list[MatchSummary] = []
@@ -189,7 +190,6 @@ class SofascoreProvider(BaseProvider):
     async def subscribe(self, match_id: str) -> AsyncIterator[MatchEvent]:
         seen_incident_ids: set[str] = set()
         last_phase: MatchPhase | None = None
-        last_status: str = ""
         burst_until = 0.0
         consecutive_failures = 0
         backoff = 30.0
@@ -219,7 +219,6 @@ class SofascoreProvider(BaseProvider):
                         score_away=summary.score_away,
                     )
                     last_phase = summary.phase
-                    last_status = summary.status
                 if summary.phase in (MatchPhase.FT, MatchPhase.ABANDONED, MatchPhase.POSTPONED):
                     return
 

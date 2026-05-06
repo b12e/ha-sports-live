@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import AsyncIterator
 
 from .base import (
     BaseProvider,
@@ -30,7 +30,7 @@ class ReplayProvider(BaseProvider):
             competition="Replay",
             home=Team(id="H", name="Replay Home", primary_color="#e60012"),
             away=Team(id="A", name="Replay Away", primary_color="#003399"),
-            kickoff_utc=datetime.now(timezone.utc),
+            kickoff_utc=datetime.now(UTC),
             status="replay",
             phase=MatchPhase.PRE,
         )

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import AsyncIterator
 
 
 class MatchPhase(str, Enum):
@@ -70,7 +70,7 @@ class MatchEvent:
     player: str | None = None
     score_home: int | None = None  # post-event score
     score_away: int | None = None
-    received_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    received_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     raw: dict | None = None
 
 

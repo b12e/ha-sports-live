@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 from .base import (
     BaseProvider,
@@ -27,7 +27,7 @@ class MockProvider(BaseProvider):
             competition="Mock",
             home=Team(id="H", name="Home", short_name="HOM", primary_color="#e60012"),
             away=Team(id="A", name="Away", short_name="AWY", primary_color="#003399"),
-            kickoff_utc=datetime.now(timezone.utc),
+            kickoff_utc=datetime.now(UTC),
             status="mock",
             phase=MatchPhase.LIVE,
         )
