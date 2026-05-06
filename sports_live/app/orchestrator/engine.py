@@ -351,8 +351,13 @@ class Orchestrator:
         if handle is not None:
             with contextlib.suppress(Exception):
                 await handle.task
-
-        await self._reassert_ambient()
+            # The effect just painted the lights to its final step color.
+            # Even if ambient hasn't logically changed (e.g. yellow card —
+            # no score delta), we must repaint so the bulb returns to the
+            # ambient color instead of staying yellow / red / etc.
+            await self._reassert_ambient(force=True)
+        else:
+            await self._reassert_ambient()
 
     async def _run_effect_for(
         self, effect: Effect, event: MatchEvent
@@ -400,9 +405,17 @@ class Orchestrator:
         if handle is not None:
             with contextlib.suppress(Exception):
                 await handle.task
-        await self._reassert_ambient()
+        # Force repaint so the bulbs return to ambient instead of holding
+        # the effect's final color.
+        await self._reassert_ambient(force=True)
 
-    async def _reassert_ambient(self) -> None:
+    async def _reassert_ambient(self, *, force: bool = False) -> None:
+        """Re-paint ambient on each position group whose color has changed.
+
+        With `force=True`, ignore the per-position cache and repaint everything.
+        Used after an event-driven effect so the bulbs don't stay stuck on the
+        effect's final step color when ambient happens to be unchanged.
+        """
         if not self._summary or not self._lights:
             return
         plan = self._ambient.choose(self._state, self._summary, home_side=self._home_side)
@@ -415,7 +428,7 @@ class Orchestrator:
             eids = self._entities(position)
             if not eids:
                 continue
-            if self._last_ambient_by_pos.get(position) == choice.color:
+            if not force and self._last_ambient_by_pos.get(position) == choice.color:
                 continue
             log.debug("ambient[%s] -> %s", position, choice.color)
             ambient_effect = Effect(
