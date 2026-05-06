@@ -1,0 +1,8 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start the Sports Live add-on
+# ==============================================================================
+bashio::log.info "Starting Sports Live add-on..."
+
+cd /opt/app
+exec python -m app

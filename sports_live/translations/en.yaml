@@ -1,0 +1,19 @@
+configuration:
+  log_level:
+    name: Log level
+    description: Verbosity of add-on logs.
+  default_competition:
+    name: Default competition
+    description: Pre-selected competition in the UI (e.g. fifa-world-cup-2026).
+  poll_interval_idle_s:
+    name: Idle poll interval (seconds)
+    description: Time between data-source polls when no match is running.
+  poll_interval_live_s:
+    name: Live poll interval (seconds)
+    description: Time between polls during live play.
+  poll_interval_burst_s:
+    name: Burst poll interval (seconds)
+    description: Time between polls for the 60 seconds following a goal or card.
+  default_tv_delay_s:
+    name: Default TV delay (seconds)
+    description: Pre-filled value for the TV-delay slider in the UI.
