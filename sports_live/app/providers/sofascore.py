@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
@@ -50,6 +51,30 @@ _STATUS_TO_PHASE = {
     "abandoned": MatchPhase.ABANDONED,
     "interrupted": MatchPhase.LIVE,
 }
+
+# Tournaments matching this pattern are filtered out of the live picker even
+# if their priority is high enough — youth, reserve and academy fixtures
+# generally aren't what the user wants to react to in their living room.
+_MINOR_COMPETITION_RE = re.compile(
+    r"\b(?:U-?\d{2}|youth|academy|reserves?|primavera|junior|juvenil|veterans?)\b",
+    re.IGNORECASE,
+)
+
+# Sofascore's `tournament.priority` field. Top continental + national leagues
+# (UCL, EPL, La Liga, Bundesliga, Serie A, Ligue 1, Eredivisie, Belgian Pro
+# League, World Cup, Euro …) sit at 250+, while regional 4th-5th tier and
+# youth competitions are mostly <100.
+_MIN_TOURNAMENT_PRIORITY = 250
+
+
+def _is_primary_competition(event_payload: dict) -> bool:
+    tournament = event_payload.get("tournament") or {}
+    name = tournament.get("name") or ""
+    if _MINOR_COMPETITION_RE.search(name):
+        return False
+    priority = tournament.get("priority") or 0
+    return priority >= _MIN_TOURNAMENT_PRIORITY
+
 
 _INCIDENT_KIND_MAP = {
     "goal": EventKind.GOAL,
@@ -196,6 +221,8 @@ class SofascoreProvider(BaseProvider):
         try:
             _, body, _ = await self._get("/sport/football/events/live")
             for ev in (body or {}).get("events", []) or []:
+                if not _is_primary_competition(ev):
+                    continue
                 try:
                     s = _to_summary(ev)
                     out[s.id] = s
@@ -216,6 +243,8 @@ class SofascoreProvider(BaseProvider):
                 log.warning("scheduled (%s) fetch failed: %s", date, e)
                 continue
             for ev in (body or {}).get("events", []) or []:
+                if not _is_primary_competition(ev):
+                    continue
                 try:
                     s = _to_summary(ev)
                 except (KeyError, TypeError):
