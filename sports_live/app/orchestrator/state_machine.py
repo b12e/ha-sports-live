@@ -42,11 +42,11 @@ def apply_event(state: MatchState, event: MatchEvent) -> MatchState:
         # Keep current phase; provider will follow up with explicit kicks.
         pass
 
-    if event.kind in (EventKind.GOAL, EventKind.OWN_GOAL, EventKind.PENALTY_GOAL):
-        if event.score_home is not None and event.score_away is not None:
-            new.score_home = event.score_home
-            new.score_away = event.score_away
-        elif event.side == Side.HOME:
+    if event.score_home is not None and event.score_away is not None:
+        new.score_home = event.score_home
+        new.score_away = event.score_away
+    elif event.kind in (EventKind.GOAL, EventKind.OWN_GOAL, EventKind.PENALTY_GOAL):
+        if event.side == Side.HOME:
             new.score_home += 1
         elif event.side == Side.AWAY:
             new.score_away += 1

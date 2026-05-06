@@ -57,6 +57,10 @@ class EffectRuntime:
     def set_dry_run(self, on: bool) -> None:
         self._dry_run = on
 
+    @property
+    def dry_run(self) -> bool:
+        return self._dry_run
+
     def set_rgb_capable(self, entities: set[str]) -> None:
         """Tell the runtime which entity_ids accept rgb_color. Others get
         brightness-only pulses so non-color lights still flash visibly."""

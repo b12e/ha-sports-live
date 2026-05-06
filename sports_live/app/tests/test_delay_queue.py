@@ -38,6 +38,19 @@ async def test_set_offset_retimes_queued_items():
 
 
 @pytest.mark.asyncio
+async def test_clear_drops_queued_items_but_keeps_offset():
+    q: DelayQueue[str] = DelayQueue(offset_s=0.2)
+    await q.push("stale")
+    await q.clear()
+    assert q.snapshot() == []
+    assert q.offset_s == 0.2
+
+    await q.push("fresh")
+    got = await q.pop_when_due()
+    assert got == "fresh"
+
+
+@pytest.mark.asyncio
 async def test_priority_ordering_by_play_at():
     q: DelayQueue[str] = DelayQueue(offset_s=0.0)
     loop = asyncio.get_event_loop()

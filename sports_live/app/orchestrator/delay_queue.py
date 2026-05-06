@@ -44,6 +44,11 @@ class DelayQueue(Generic[T]):
             heapq.heapify(self._heap)
             self._cv.notify_all()
 
+    async def clear(self) -> None:
+        async with self._cv:
+            self._heap.clear()
+            self._cv.notify_all()
+
     async def push(self, payload: T, *, at_now: float | None = None) -> None:
         loop = asyncio.get_event_loop()
         now = at_now if at_now is not None else loop.time()

@@ -49,6 +49,15 @@ def test_halftime_then_fulltime():
     assert s.is_terminal
 
 
+def test_phase_event_score_payload_updates_scoreboard():
+    s = apply_event(
+        MatchState(phase=MatchPhase.LIVE, score_home=1, score_away=1),
+        ev(EventKind.HT, score_home=2, score_away=1),
+    )
+    assert s.phase == MatchPhase.HT
+    assert s.score_home == 2 and s.score_away == 1
+
+
 def test_own_goal_credits_other_side_via_score_payload():
     # OWN_GOAL by HOME-side player credits AWAY; provider sends post-event scores.
     s = apply_event(

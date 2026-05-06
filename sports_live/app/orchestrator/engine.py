@@ -137,7 +137,7 @@ class Orchestrator:
             last_event=self._last_event,
             pending_events=len(self._queue.snapshot()),
             tv_delay_s=self._queue.offset_s,
-            dry_run=self._effects._dry_run,
+            dry_run=self._effects.dry_run,
             failure=self._failure,
         )
 
@@ -181,6 +181,7 @@ class Orchestrator:
             self._last_event = None
             self._last_ambient_by_pos = {"left": None, "right": None, "both": None}
             self._failure = None
+            await self._queue.clear()
             await self._queue.set_offset(tv_delay_s)
 
             # Detect which lights accept rgb_color so non-RGB ones get brightness pulses.
@@ -232,6 +233,7 @@ class Orchestrator:
                         await task
             self._provider_task = None
             self._dispatch_task = None
+            await self._queue.clear()
             with contextlib.suppress(Exception):
                 await self._provider.aclose()
             self._provider = None
@@ -313,7 +315,16 @@ class Orchestrator:
         try:
             while True:
                 event = await self._queue.pop_when_due()
-                await self._handle_event(event)
+                try:
+                    await self._handle_event(event)
+                except Exception:  # noqa: BLE001
+                    # One bad event mustn't take down the whole dispatch task —
+                    # otherwise the provider keeps pushing, the queue grows,
+                    # and the lights stop reacting silently.
+                    log.exception(
+                        "event handler crashed for %s (continuing)",
+                        event.kind.value,
+                    )
         except asyncio.CancelledError:
             raise
 
