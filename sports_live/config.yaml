@@ -1,6 +1,7 @@
 name: Sports Live
 version: "0.1.1"
 slug: sports_live
+image: ghcr.io/b12e/{arch}-addon-sports-live
 description: >-
   Reactive lighting for live football matches. Syncs your Home Assistant
   lights with goals, cards, and team colors during the 2026 World Cup —

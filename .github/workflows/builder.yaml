@@ -47,6 +47,7 @@ jobs:
           # IMPORTANT: keep this on a single line. The action substitutes
           # `${{ inputs.args }}` directly into a bash script with no quoting,
           # so a multi-line YAML literal turns into separate would-be
-          # commands after the first newline — only `--<arch>` reaches the
-          # builder and it fails with `Could not open /tmp/build_config/config.json`.
-          args: --${{ matrix.arch }} --target /data/sports_live --image "ghcr.io/${{ github.repository_owner }}/{arch}-addon-sports-live" --version ${{ steps.version.outputs.version }} --addon
+          # commands after the first newline. The image (and the
+          # repository/image split that builder.sh derives from it) comes
+          # from `image:` in config.yaml.
+          args: --${{ matrix.arch }} --target /data/sports_live --version ${{ steps.version.outputs.version }} --addon
