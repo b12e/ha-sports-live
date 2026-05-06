@@ -41,25 +41,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Debug — inspect what the builder container will see
-        run: |
-          echo "github.workspace = $GITHUB_WORKSPACE"
-          ls -la "$GITHUB_WORKSPACE"
-          echo "--- sports_live/ ---"
-          ls -la "$GITHUB_WORKSPACE/sports_live"
-          echo "--- builder image probe ---"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE":/data \
-            --entrypoint /bin/sh \
-            ghcr.io/home-assistant/${{ matrix.arch }}-builder:2024.08.2 \
-            -c 'pwd; ls -la /data; ls -la /data/sports_live; echo "--- config.yaml head: ---"; head -5 /data/sports_live/config.yaml'
-
       - name: Build add-on
         uses: home-assistant/builder@2024.08.2
         with:
-          args: |
-            --${{ matrix.arch }}
-            --target /data/sports_live
-            --image "ghcr.io/${{ github.repository_owner }}/{arch}-addon-sports-live"
-            --version ${{ steps.version.outputs.version }}
-            --addon
+          # IMPORTANT: keep this on a single line. The action substitutes
+          # `${{ inputs.args }}` directly into a bash script with no quoting,
+          # so a multi-line YAML literal turns into separate would-be
+          # commands after the first newline — only `--<arch>` reaches the
+          # builder and it fails with `Could not open /tmp/build_config/config.json`.
+          args: --${{ matrix.arch }} --target /data/sports_live --image "ghcr.io/${{ github.repository_owner }}/{arch}-addon-sports-live" --version ${{ steps.version.outputs.version }} --addon
