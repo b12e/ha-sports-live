@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 (2026-05-06)
+
+- **Filter minor competitions out of the live picker.** Regional 4th-tier
+  leagues, U17/U19/U21 youth tournaments, reserve squads, academy
+  fixtures and small island cups no longer dominate the list. Filter
+  combines Sofascore's `tournament.priority` (≥250) with a
+  youth/reserve/academy regex on the tournament name, so the list now
+  surfaces top continental + national leagues plus international
+  tournaments.
+
 ## 0.1.2 (2026-05-06)
 
 - **Live & upcoming match picker.** The Sofascore (live) provider now
