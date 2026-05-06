@@ -41,6 +41,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Debug — inspect what the builder container will see
+        run: |
+          echo "github.workspace = $GITHUB_WORKSPACE"
+          ls -la "$GITHUB_WORKSPACE"
+          echo "--- sports_live/ ---"
+          ls -la "$GITHUB_WORKSPACE/sports_live"
+          echo "--- builder image probe ---"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/data \
+            --entrypoint /bin/sh \
+            ghcr.io/home-assistant/${{ matrix.arch }}-builder:2024.08.2 \
+            -c 'pwd; ls -la /data; ls -la /data/sports_live; echo "--- config.yaml head: ---"; head -5 /data/sports_live/config.yaml'
+
       - name: Build add-on
         uses: home-assistant/builder@2024.08.2
         with:
