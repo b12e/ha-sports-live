@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.2 (2026-05-06)
+
+- **Live & upcoming match picker.** The Sofascore (live) provider now
+  opens onto a visual list of currently-live football matches plus any
+  kicking off in the next ~4 hours, instead of a search box. Each card
+  shows the competition, both team names with color dots, the current
+  score (live) or kickoff time + countdown (upcoming), and a status
+  pill (LIVE / HT / ET / PEN). Click to pick. Auto-refreshes every 30s.
+  "Search instead" still surfaces the old search box for finishing /
+  lower-tier matches.
+- New `GET /api/match/live` endpoint backs the picker.
+- Drop `armv7` from the build matrix; `armv7` users can still install
+  by adding the repo and letting HA build locally.
+- Drop the unused `default_competition` add-on option (never read
+  anywhere; the live picker replaces it).
+
 ## 0.1.1 (2026-05-06)
 
 First end-to-end-tested release. Bug fixes and resilience improvements

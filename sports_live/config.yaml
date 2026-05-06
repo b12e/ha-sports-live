@@ -1,5 +1,5 @@
 name: Sports Live
-version: "0.1.1"
+version: "0.1.2"
 slug: sports_live
 image: ghcr.io/b12e/{arch}-addon-sports-live
 description: >-
