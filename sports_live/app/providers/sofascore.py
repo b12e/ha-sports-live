@@ -4,7 +4,7 @@ import asyncio
 import logging
 import random
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -186,6 +186,53 @@ class SofascoreProvider(BaseProvider):
     async def get_match(self, match_id: str) -> MatchSummary:
         _, body, _ = await self._get(f"/event/{match_id}")
         return _to_summary(body["event"])
+
+    async def live_and_upcoming(self, *, within_min: int = 240) -> list[MatchSummary]:
+        """Return football matches that are either currently live or kicking
+        off within the next `within_min` minutes. Sorted live-first, then by
+        kickoff time."""
+        out: dict[str, MatchSummary] = {}
+
+        try:
+            _, body, _ = await self._get("/sport/football/events/live")
+            for ev in (body or {}).get("events", []) or []:
+                try:
+                    s = _to_summary(ev)
+                    out[s.id] = s
+                except (KeyError, TypeError):
+                    continue
+        except httpx.HTTPError as e:
+            log.warning("live football fetch failed: %s", e)
+
+        now = datetime.now(UTC)
+        horizon = now + timedelta(minutes=within_min)
+        # Sofascore exposes scheduled events one date at a time; check today
+        # and tomorrow so we cover matches that cross midnight UTC.
+        for delta_days in (0, 1):
+            date = (now + timedelta(days=delta_days)).strftime("%Y-%m-%d")
+            try:
+                _, body, _ = await self._get(f"/sport/football/scheduled-events/{date}")
+            except httpx.HTTPError as e:
+                log.warning("scheduled (%s) fetch failed: %s", date, e)
+                continue
+            for ev in (body or {}).get("events", []) or []:
+                try:
+                    s = _to_summary(ev)
+                except (KeyError, TypeError):
+                    continue
+                if s.id in out:
+                    continue  # already in live list
+                if s.kickoff_utc <= now or s.kickoff_utc > horizon:
+                    continue
+                if s.phase in (MatchPhase.FT, MatchPhase.ABANDONED, MatchPhase.POSTPONED):
+                    continue
+                out[s.id] = s
+
+        live_phases = (MatchPhase.LIVE, MatchPhase.HT, MatchPhase.ET, MatchPhase.PEN)
+        return sorted(
+            out.values(),
+            key=lambda s: (0 if s.phase in live_phases else 1, s.kickoff_utc),
+        )
 
     async def fetch_replay_records(self, match_id: str) -> list[dict]:
         """Pull a finished match's incidents and return replay-format records.

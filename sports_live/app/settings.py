@@ -15,7 +15,6 @@ LogLevel = Literal["trace", "debug", "info", "notice", "warning", "error", "fata
 
 class Settings(BaseModel):
     log_level: LogLevel = "info"
-    default_competition: str = "fifa-world-cup-2026"
     poll_interval_idle_s: int = Field(10, ge=5, le=60)
     poll_interval_live_s: int = Field(8, ge=2, le=30)
     poll_interval_burst_s: int = Field(2, ge=1, le=10)

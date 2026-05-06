@@ -9,7 +9,10 @@ const state = {
   selectedLights: new Set(),
   lightPositions: new Map(), // entity_id -> "left" | "right" | "both"
   status: null,            // last /api/match/status response
+  liveMatches: [],         // last /api/match/live response
 };
+
+let liveRefreshTimer = null;
 
 // ---- helpers --------------------------------------------------------------
 
@@ -51,6 +54,88 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
+// ---- live & upcoming list -------------------------------------------------
+
+const LIVE_PHASES = new Set(["live", "halftime", "extra_time", "penalty_shootout"]);
+
+function fmtKickoff(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const mins = Math.round((d - now) / 60000);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (mins <= 0) return `${hh}:${mm}`;
+  if (mins < 60) return `${hh}:${mm} · in ${mins}m`;
+  return `${hh}:${mm} · in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+function liveStatusBadge(m) {
+  if (m.phase === "live") return { text: "LIVE", cls: "ok" };
+  if (m.phase === "halftime") return { text: "HT", cls: "warn" };
+  if (m.phase === "extra_time") return { text: "ET", cls: "ok" };
+  if (m.phase === "penalty_shootout") return { text: "PEN", cls: "ok" };
+  return { text: fmtKickoff(m.kickoff_utc), cls: "pending" };
+}
+
+function renderLive() {
+  const items = state.liveMatches;
+  if (!items.length) {
+    $("#live-list").innerHTML = `<p class="muted">No live or imminent matches right now.</p>`;
+    return;
+  }
+  $("#live-list").innerHTML = items.map((m, i) => {
+    const isLive = LIVE_PHASES.has(m.phase);
+    const badge = liveStatusBadge(m);
+    const score = isLive
+      ? `<span class="lm-score">${m.score_home}</span><span class="lm-sep">–</span><span class="lm-score">${m.score_away}</span>`
+      : `<span class="lm-score muted">—</span><span class="lm-sep muted">vs</span><span class="lm-score muted">—</span>`;
+    const homeColor = m.home.color || "transparent";
+    const awayColor = m.away.color || "transparent";
+    return `
+      <button class="lm" data-i="${i}" type="button">
+        <div class="lm-meta">
+          <span class="lm-comp">${escape(m.competition || "—")}</span>
+          <span class="status status-${badge.cls}">${escape(badge.text)}</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-team lm-home">
+            <span class="lm-color" style="background:${homeColor}"></span>
+            <span class="lm-name">${escape(m.home.name)}</span>
+          </span>
+          <span class="lm-score-block">${score}</span>
+          <span class="lm-team lm-away">
+            <span class="lm-name">${escape(m.away.name)}</span>
+            <span class="lm-color" style="background:${awayColor}"></span>
+          </span>
+        </div>
+      </button>`;
+  }).join("");
+  $$("#live-list .lm").forEach((b) =>
+    b.addEventListener("click", () => pick(items[+b.dataset.i]))
+  );
+}
+
+async function loadLive() {
+  try {
+    state.liveMatches = await api("/match/live");
+    renderLive();
+  } catch (err) {
+    $("#live-list").innerHTML = `<p class="error">Could not load live matches: ${escape(err.message)}</p>`;
+  }
+}
+
+function startLiveRefresh() {
+  stopLiveRefresh();
+  liveRefreshTimer = setInterval(loadLive, 30_000);
+}
+
+function stopLiveRefresh() {
+  if (liveRefreshTimer) {
+    clearInterval(liveRefreshTimer);
+    liveRefreshTimer = null;
+  }
+}
+
 const doSearch = debounce(async () => {
   const q = $("#q").value.trim();
   const provider = $("#provider").value;
@@ -88,14 +173,24 @@ function pick(m) {
   $("#picked-label").textContent = `${m.home.name} vs ${m.away.name} (${m.competition || "—"})`;
   $("#results").innerHTML = "";
   $("#search-row").classList.add("hidden");
+  $("#live-row").classList.add("hidden");
   refreshStartButton();
 }
 
 function unpick() {
   state.picked = null;
   $("#picked").classList.add("hidden");
-  $("#search-row").classList.remove("hidden");
+  applyProviderVisibility();
   refreshStartButton();
+}
+
+function applyProviderVisibility() {
+  const p = $("#provider").value;
+  const isSofa = p === "sofascore";
+  $("#live-row").classList.toggle("hidden", !isSofa || Boolean(state.picked));
+  $("#search-row").classList.add("hidden"); // search is opt-in via "Search instead"
+  if (isSofa && !state.picked) loadLive();
+  if (isSofa) startLiveRefresh(); else stopLiveRefresh();
 }
 
 // ---- lights ---------------------------------------------------------------
@@ -269,10 +364,12 @@ function renderStatus() {
     $("#mock").classList.add("hidden");
     $("#setup").classList.remove("hidden");
     setPhase("idle");
+    if ($("#provider").value === "sofascore" && !state.picked) startLiveRefresh();
     return;
   }
   $("#setup").classList.add("hidden");
   $("#live").classList.remove("hidden");
+  stopLiveRefresh();
 
   // Mock injectors visible only when last_used.provider === "mock".
   const lastProvider = (state.picked && $("#provider").value) || (state.status && state.status.provider);
@@ -363,8 +460,11 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#replay-row").classList.toggle("hidden", p !== "replay");
     $("#sofa-replay-row").classList.toggle("hidden", p !== "sofascore_replay");
     $("#replay-speed-row").classList.toggle("hidden", p !== "replay" && p !== "sofascore_replay");
-    const useSearch = p === "sofascore" || p === "mock";
-    $("#search-row").classList.toggle("hidden", !useSearch || Boolean(state.picked));
+    // Mock provider: surface the search input directly so the user can pick the
+    // single mock match without going through the live list.
+    const showSearchByDefault = p === "mock";
+    $("#search-row").classList.toggle("hidden", !showSearchByDefault || Boolean(state.picked));
+    applyProviderVisibility();
     refreshStartButton();
   });
   $("#replay-path").addEventListener("input", refreshStartButton);
@@ -381,6 +481,12 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#swap-sides").addEventListener("click", (e) => { e.preventDefault(); swapSides(); });
   $("#test-home").addEventListener("click", (e) => { e.preventDefault(); testFlash("home"); });
   $("#test-away").addEventListener("click", (e) => { e.preventDefault(); testFlash("away"); });
+  $("#refresh-live").addEventListener("click", (e) => { e.preventDefault(); loadLive(); });
+  $("#show-search").addEventListener("click", (e) => {
+    e.preventDefault();
+    $("#search-row").classList.remove("hidden");
+    $("#q").focus();
+  });
   $("#tv-delay").addEventListener("input", () => {
     $("#tv-delay-readout").textContent = $("#tv-delay").value;
     updateDelay();
@@ -390,6 +496,7 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   // Restore last-used selection first, then list lights so pre-checked rows render correctly.
   loadLastConfig().finally(loadLights);
+  applyProviderVisibility();
   refreshStatus();
   setInterval(refreshStatus, 1500);
 });

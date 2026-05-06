@@ -86,7 +86,21 @@
         </select>
       </label>
 
-      <label id="search-row">Search
+      <div id="live-row">
+        <div class="live-header">
+          <h3>Live &amp; upcoming football</h3>
+          <button id="refresh-live" class="link" type="button">Refresh</button>
+        </div>
+        <div id="live-list" class="live-list">
+          <p class="muted">Loading…</p>
+        </div>
+        <p class="muted">
+          Don't see your match?
+          <button id="show-search" class="link" type="button">Search instead</button>
+        </p>
+      </div>
+
+      <label id="search-row" class="hidden">Search
         <input id="q" type="search" placeholder="Belgium, France, Real Madrid…" autocomplete="off">
       </label>
 

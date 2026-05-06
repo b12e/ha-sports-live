@@ -2,9 +2,6 @@ configuration:
   log_level:
     name: Log level
     description: Verbosity of add-on logs.
-  default_competition:
-    name: Default competition
-    description: Pre-selected competition in the UI (e.g. fifa-world-cup-2026).
   poll_interval_idle_s:
     name: Idle poll interval (seconds)
     description: Time between data-source polls when no match is running.

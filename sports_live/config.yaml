@@ -24,14 +24,12 @@ map:
   - share:rw
 options:
   log_level: info
-  default_competition: fifa-world-cup-2026
   poll_interval_idle_s: 10
   poll_interval_live_s: 8
   poll_interval_burst_s: 2
   default_tv_delay_s: 0
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
-  default_competition: str
   poll_interval_idle_s: int(5,60)
   poll_interval_live_s: int(2,30)
   poll_interval_burst_s: int(1,10)

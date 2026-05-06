@@ -139,6 +139,39 @@ def create_app(settings: Settings) -> FastAPI:
 
     # ---- match search & lifecycle ---------------------------------------
 
+    @app.get("/api/match/live")
+    async def live_matches() -> list[dict[str, Any]]:
+        """Football matches currently live or kicking off in the next ~4h."""
+        sofa = SofascoreProvider()
+        try:
+            results = await sofa.live_and_upcoming()
+        finally:
+            await sofa.aclose()
+        return [
+            {
+                "id": s.id,
+                "competition": s.competition,
+                "kickoff_utc": s.kickoff_utc.isoformat(),
+                "status": s.status,
+                "phase": s.phase.value,
+                "score_home": s.score_home,
+                "score_away": s.score_away,
+                "home": {
+                    "id": s.home.id,
+                    "name": s.home.name,
+                    "short": s.home.short_name,
+                    "color": (f"#{s.home.primary_color}" if s.home.primary_color else None),
+                },
+                "away": {
+                    "id": s.away.id,
+                    "name": s.away.name,
+                    "short": s.away.short_name,
+                    "color": (f"#{s.away.primary_color}" if s.away.primary_color else None),
+                },
+            }
+            for s in results
+        ]
+
     @app.get("/api/match/search")
     async def search(q: str = "", provider: str = "sofascore") -> list[dict[str, Any]]:
         if not q.strip():

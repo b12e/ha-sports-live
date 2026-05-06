@@ -16,7 +16,6 @@ A **Stop** button is always visible — pressing it instantly restores the captu
 | Option | Description |
 |---|---|
 | `log_level` | Verbosity of add-on logs (`trace` … `fatal`). Default `info`. |
-| `default_competition` | Pre-selected competition in the UI. Default `fifa-world-cup-2026`. |
 | `poll_interval_idle_s` | Seconds between data-source polls when no match is running. |
 | `poll_interval_live_s` | Seconds between polls during live play. |
 | `poll_interval_burst_s` | Seconds between polls for ~60s after a goal or card. |
