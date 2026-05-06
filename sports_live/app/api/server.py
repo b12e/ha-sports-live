@@ -17,7 +17,7 @@ from ..ha_client import HAClient
 from ..orchestrator.engine import Orchestrator
 from ..providers.base import EventKind, MatchEvent, Side
 from ..providers.mock import MockProvider
-from ..providers.replay import ReplayProvider
+from ..providers.replay import InMemoryReplayProvider, ReplayProvider
 from ..providers.sofascore import SofascoreProvider
 from ..settings import Settings
 
@@ -27,11 +27,16 @@ UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
 class StartReq(BaseModel):
     match_id: str
-    provider: Literal["sofascore", "mock", "replay"] = "sofascore"
+    provider: Literal["sofascore", "mock", "replay", "sofascore_replay"] = "sofascore"
     lights: list[str] = Field(default_factory=list)
     tv_delay_s: float = 0.0
     dry_run: bool = False
     replay_path: str | None = None
+    replay_speed: float = 1.0
+
+
+class ReplayPreviewReq(BaseModel):
+    event_id: str
 
 
 class ColorOverrideReq(BaseModel):
@@ -150,12 +155,26 @@ def create_app(settings: Settings) -> FastAPI:
     async def start(req: StartReq) -> dict[str, Any]:
         if app.state.provider is not None or orchestrator.status().running:
             raise HTTPException(status_code=409, detail="already running; stop first")
-        prov = _make_provider(req.provider, replay_path=req.replay_path)
-        try:
-            summary = await prov.get_match(req.match_id)
-        except Exception as e:  # noqa: BLE001
-            await prov.aclose()
-            raise HTTPException(status_code=502, detail=f"match lookup failed: {e}") from e
+
+        if req.provider == "sofascore_replay":
+            sofa = SofascoreProvider()
+            try:
+                summary = await sofa.get_match(req.match_id)
+                records = await sofa.fetch_replay_records(req.match_id)
+            except Exception as e:  # noqa: BLE001
+                await sofa.aclose()
+                raise HTTPException(status_code=502, detail=f"sofascore fetch failed: {e}") from e
+            await sofa.aclose()
+            prov = InMemoryReplayProvider(records, summary, speed=req.replay_speed)
+        else:
+            prov = _make_provider(
+                req.provider, replay_path=req.replay_path, replay_speed=req.replay_speed
+            )
+            try:
+                summary = await prov.get_match(req.match_id)
+            except Exception as e:  # noqa: BLE001
+                await prov.aclose()
+                raise HTTPException(status_code=502, detail=f"match lookup failed: {e}") from e
 
         orchestrator.set_dry_run(req.dry_run)
         try:
@@ -229,10 +248,37 @@ def create_app(settings: Settings) -> FastAPI:
         orchestrator.set_dry_run(on)
         return {"dry_run": on}
 
+    @app.post("/api/replay/preview")
+    async def preview_replay(req: ReplayPreviewReq) -> dict[str, Any]:
+        """Fetch a Sofascore match by ID and return its converted replay records
+        without starting the orchestrator. Used by the UI's replay flow."""
+        sofa = SofascoreProvider()
+        try:
+            summary = await sofa.get_match(req.event_id)
+            records = await sofa.fetch_replay_records(req.event_id)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"sofascore fetch failed: {e}") from e
+        finally:
+            await sofa.aclose()
+        return {
+            "match_id": summary.id,
+            "competition": summary.competition,
+            "home": {"id": summary.home.id, "name": summary.home.name},
+            "away": {"id": summary.away.id, "name": summary.away.name},
+            "kickoff_utc": summary.kickoff_utc.isoformat(),
+            "final_score": [summary.score_home, summary.score_away],
+            "records": records,
+        }
+
     return app
 
 
-def _make_provider(name: str, *, replay_path: str | None = None) -> Any:
+def _make_provider(
+    name: str,
+    *,
+    replay_path: str | None = None,
+    replay_speed: float = 1.0,
+) -> Any:
     if name == "sofascore":
         return SofascoreProvider()
     if name == "mock":
@@ -240,5 +286,5 @@ def _make_provider(name: str, *, replay_path: str | None = None) -> Any:
     if name == "replay":
         if not replay_path:
             raise HTTPException(status_code=400, detail="replay_path required")
-        return ReplayProvider(replay_path)
+        return ReplayProvider(replay_path, speed=replay_speed)
     raise HTTPException(status_code=400, detail=f"unknown provider: {name}")

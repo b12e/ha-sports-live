@@ -187,6 +187,50 @@ class SofascoreProvider(BaseProvider):
         _, body, _ = await self._get(f"/event/{match_id}")
         return _to_summary(body["event"])
 
+    async def fetch_replay_records(self, match_id: str) -> list[dict]:
+        """Pull a finished match's incidents and return replay-format records.
+
+        Past matches don't carry per-incident wall-clock timestamps, so we fake
+        them from the minute marker (`time` + `addedTime`). At replay speed=1.0
+        the timeline is ~95 minutes long; speed>1 compresses it. We synthesize
+        kickoff, halftime, second-half kickoff and fulltime markers around the
+        real incidents.
+        """
+        _, ev_body, _ = await self._get(f"/event/{match_id}")
+        summary = _to_summary(ev_body["event"])
+        _, inc_body, _ = await self._get(f"/event/{match_id}/incidents")
+        incidents = (inc_body or {}).get("incidents") or []
+
+        recs: list[dict] = []
+        for inc in reversed(incidents):  # Sofascore returns newest-first
+            mev = _incident_to_event(inc, str(match_id), summary)
+            if mev is None:
+                continue
+            minute = inc.get("time") or 0
+            added = inc.get("addedTime") or 0
+            ts = float((minute + added) * 60)
+            rec: dict = {"ts_offset_s": ts, "kind": mev.kind.value, "minute": minute}
+            if mev.side:
+                rec["side"] = mev.side.value
+            if mev.score_home is not None:
+                rec["score_home"] = mev.score_home
+            if mev.score_away is not None:
+                rec["score_away"] = mev.score_away
+            recs.append(rec)
+
+        # Synthesize phase markers.
+        recs.insert(0, {"ts_offset_s": 0.0, "kind": "kickoff"})
+        # Halftime + 2nd half kickoff at the 45' boundary.
+        ht_at = 45 * 60 + 30
+        ko2_at = ht_at + 30
+        # Insert in chronological order.
+        recs.append({"ts_offset_s": float(ht_at), "kind": "halftime"})
+        recs.append({"ts_offset_s": float(ko2_at), "kind": "kickoff"})
+        last_ts = max((r["ts_offset_s"] for r in recs), default=0.0)
+        recs.append({"ts_offset_s": last_ts + 30.0, "kind": "fulltime"})
+        recs.sort(key=lambda r: r["ts_offset_s"])
+        return recs
+
     async def subscribe(self, match_id: str) -> AsyncIterator[MatchEvent]:
         seen_incident_ids: set[str] = set()
         last_phase: MatchPhase | None = None

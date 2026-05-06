@@ -133,9 +133,14 @@ function renderLights() {
 
 function refreshStartButton() {
   const provider = $("#provider").value;
-  const ready = (provider === "replay")
-    ? Boolean($("#replay-path").value.trim()) && state.selectedLights.size > 0
-    : Boolean(state.picked) && state.selectedLights.size > 0;
+  let ready = false;
+  if (provider === "replay") {
+    ready = Boolean($("#replay-path").value.trim()) && state.selectedLights.size > 0;
+  } else if (provider === "sofascore_replay") {
+    ready = Boolean($("#sofa-event-id").value.trim()) && state.selectedLights.size > 0;
+  } else {
+    ready = Boolean(state.picked) && state.selectedLights.size > 0;
+  }
   $("#start").disabled = !ready;
 }
 
@@ -143,13 +148,19 @@ async function start() {
   $("#start").disabled = true;
   try {
     const provider = $("#provider").value;
+    let matchId = "replay";
+    if (provider === "sofascore" || provider === "mock") matchId = state.picked.id;
+    else if (provider === "sofascore_replay") matchId = $("#sofa-event-id").value.trim();
     const body = {
       provider,
-      match_id: state.picked ? state.picked.id : "replay",
+      match_id: matchId,
       lights: Array.from(state.selectedLights),
       tv_delay_s: Number($("#tv-delay").value),
       dry_run: $("#dry-run").checked,
       replay_path: provider === "replay" ? $("#replay-path").value.trim() : null,
+      replay_speed: provider === "sofascore_replay" || provider === "replay"
+        ? Number($("#replay-speed").value)
+        : 1.0,
     };
     await api("/match/start", { method: "POST", body: JSON.stringify(body) });
     await refreshStatus();
@@ -157,6 +168,29 @@ async function start() {
     alert("Start failed: " + err.message);
   } finally {
     refreshStartButton();
+  }
+}
+
+async function previewSofaReplay() {
+  const id = $("#sofa-event-id").value.trim();
+  if (!id) return;
+  $("#sofa-preview-result").classList.remove("hidden");
+  $("#sofa-preview-result").innerHTML = `<p class="muted">Fetching…</p>`;
+  try {
+    const data = await api("/replay/preview", {
+      method: "POST",
+      body: JSON.stringify({ event_id: id }),
+    });
+    const counts = data.records.reduce((acc, r) => {
+      acc[r.kind] = (acc[r.kind] || 0) + 1; return acc;
+    }, {});
+    const summary = Object.entries(counts).map(([k, v]) => `${k}×${v}`).join(", ");
+    $("#sofa-preview-result").innerHTML = `
+      <p><strong>${escape(data.home.name)} ${data.final_score[0]}–${data.final_score[1]} ${escape(data.away.name)}</strong></p>
+      <p class="muted">${escape(data.competition || "—")} · kickoff ${escape(data.kickoff_utc.slice(0, 16).replace("T", " "))} UTC</p>
+      <p class="muted">${data.records.length} replay events: ${escape(summary)}</p>`;
+  } catch (err) {
+    $("#sofa-preview-result").innerHTML = `<p class="error">Preview failed: ${escape(err.message)}</p>`;
   }
 }
 
@@ -253,10 +287,20 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#provider").addEventListener("change", () => {
     const p = $("#provider").value;
     $("#replay-row").classList.toggle("hidden", p !== "replay");
-    $("#search-row").classList.toggle("hidden", p === "replay" || Boolean(state.picked));
+    $("#sofa-replay-row").classList.toggle("hidden", p !== "sofascore_replay");
+    $("#replay-speed-row").classList.toggle("hidden", p !== "replay" && p !== "sofascore_replay");
+    const useSearch = p === "sofascore" || p === "mock";
+    $("#search-row").classList.toggle("hidden", !useSearch || Boolean(state.picked));
     refreshStartButton();
   });
   $("#replay-path").addEventListener("input", refreshStartButton);
+  $("#sofa-event-id").addEventListener("input", refreshStartButton);
+  $("#sofa-preview").addEventListener("click", (e) => { e.preventDefault(); previewSofaReplay(); });
+  $("#replay-speed").addEventListener("input", () => {
+    const v = Number($("#replay-speed").value);
+    $("#replay-speed-readout").textContent = v;
+    $("#replay-duration").textContent = (90 / v).toFixed(1);
+  });
   $("#unpick").addEventListener("click", unpick);
   $("#start").addEventListener("click", start);
   $("#kill-switch").addEventListener("click", stop);

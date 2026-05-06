@@ -66,8 +66,9 @@
       <label>Provider
         <select id="provider">
           <option value="sofascore">Sofascore (live)</option>
+          <option value="sofascore_replay">Replay finished Sofascore match</option>
           <option value="mock">Mock (manual events)</option>
-          <option value="replay">Replay (JSONL)</option>
+          <option value="replay">Replay (JSONL file)</option>
         </select>
       </label>
 
@@ -77,6 +78,22 @@
 
       <label id="replay-row" class="hidden">Replay file path
         <input id="replay-path" type="text" placeholder="/share/replay-belgium-canada.jsonl">
+      </label>
+
+      <div id="sofa-replay-row" class="hidden">
+        <label>Sofascore event ID
+          <input id="sofa-event-id" type="text" placeholder="e.g. 12567431">
+          <small class="muted">Open the match on sofascore.com — the URL ends in <code>/&lt;something&gt;/&lt;eventId&gt;</code>. Paste the trailing number.</small>
+        </label>
+        <div class="row">
+          <button id="sofa-preview" class="link">Preview match</button>
+        </div>
+        <div id="sofa-preview-result" class="picked hidden"></div>
+      </div>
+
+      <label id="replay-speed-row" class="hidden">Replay speed
+        <input id="replay-speed" type="range" min="1" max="60" step="1" value="30">
+        <span><code id="replay-speed-readout">30</code>×<small class="muted"> (a 90-min match plays in <span id="replay-duration">3</span> min)</small></span>
       </label>
 
       <div id="results" class="results"></div>
