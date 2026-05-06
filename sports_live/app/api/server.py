@@ -36,10 +36,15 @@ class StartReq(BaseModel):
     provider: Literal["sofascore", "mock", "replay", "sofascore_replay"] = "sofascore"
     lights: list[LightSlotReq] = Field(default_factory=list)
     home_side: Literal["left", "right"] = "left"
+    auto_swap_at_ht: bool = True
     tv_delay_s: float = 0.0
     dry_run: bool = False
     replay_path: str | None = None
     replay_speed: float = 1.0
+
+
+class TestFlashReq(BaseModel):
+    side: Literal["home", "away"]
 
 
 class ReplayPreviewReq(BaseModel):
@@ -190,6 +195,7 @@ def create_app(settings: Settings) -> FastAPI:
                 prov, summary, light_slots,
                 tv_delay_s=req.tv_delay_s,
                 home_side=req.home_side,
+                auto_swap_at_ht=req.auto_swap_at_ht,
             )
         except Exception:
             await prov.aclose()
@@ -265,6 +271,14 @@ def create_app(settings: Settings) -> FastAPI:
     async def set_dry_run(on: bool) -> dict[str, Any]:
         orchestrator.set_dry_run(on)
         return {"dry_run": on}
+
+    @app.post("/api/debug/test_flash")
+    async def test_flash(req: TestFlashReq) -> dict[str, Any]:
+        if not orchestrator.status().running:
+            raise HTTPException(status_code=400, detail="not running")
+        side = Side.HOME if req.side == "home" else Side.AWAY
+        await orchestrator.test_flash(side)
+        return {"flashed": req.side}
 
     @app.post("/api/replay/preview")
     async def preview_replay(req: ReplayPreviewReq) -> dict[str, Any]:

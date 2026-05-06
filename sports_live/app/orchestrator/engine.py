@@ -10,7 +10,7 @@ from typing import Any
 from .. import state_store
 from ..colors.resolver import ColorResolver
 from ..effects.catalog import KIND_TO_EFFECT
-from ..effects.runtime import EffectRuntime
+from ..effects.runtime import EffectHandle, EffectRuntime
 from ..effects.schemas import PRIO_AMBIENT, Effect, Step
 from ..ha_client import HAClient
 from ..providers.base import (
@@ -110,6 +110,7 @@ class Orchestrator:
         self._summary: MatchSummary | None = None
         self._lights: list[LightSlot] = []
         self._home_side: PhysicalSide = "left"
+        self._auto_swap_at_ht: bool = True
         self._captured_scene: list[dict[str, Any]] | None = None
         self._state = MatchState()
         self._last_event: MatchEvent | None = None
@@ -162,6 +163,7 @@ class Orchestrator:
         *,
         tv_delay_s: float = 0.0,
         home_side: PhysicalSide = "left",
+        auto_swap_at_ht: bool = True,
     ) -> None:
         async with self._lock:
             if self._provider is not None:
@@ -170,6 +172,7 @@ class Orchestrator:
             self._summary = summary
             self._lights = list(lights)
             self._home_side = home_side
+            self._auto_swap_at_ht = auto_swap_at_ht
             self._state = MatchState(
                 phase=summary.phase,
                 score_home=summary.score_home,
@@ -180,10 +183,19 @@ class Orchestrator:
             self._failure = None
             await self._queue.set_offset(tv_delay_s)
 
+            # Detect which lights accept rgb_color so non-RGB ones get brightness pulses.
+            try:
+                rgb_capable = await self._discover_rgb_capable(self._all_entities())
+            except Exception as e:  # noqa: BLE001
+                log.warning("rgb capability probe failed: %s", e)
+                rgb_capable = set(self._all_entities())  # assume all capable on failure
+            self._effects.set_rgb_capable(rgb_capable)
             log.info(
-                "capturing pre-match scene for %d lights (home on %s)",
-                len(self._lights), self._home_side,
+                "starting: %d lights (home on %s, auto-swap-at-HT=%s, rgb-capable=%d/%d)",
+                len(self._lights), self._home_side, self._auto_swap_at_ht,
+                len(rgb_capable), len(self._lights),
             )
+
             try:
                 self._captured_scene = await self._ha.capture_scene(self._all_entities())
             except Exception as e:  # noqa: BLE001
@@ -245,6 +257,20 @@ class Orchestrator:
     def _all_entities(self) -> list[str]:
         return [s.entity_id for s in self._lights]
 
+    async def _discover_rgb_capable(self, entity_ids: list[str]) -> set[str]:
+        """Return the subset of entity_ids whose HA state advertises an RGB-style color mode."""
+        rgb_modes = {"rgb", "rgbw", "rgbww", "hs", "xy"}
+        capable: set[str] = set()
+        for eid in entity_ids:
+            st = await self._ha.get_state(eid)
+            if st is None:
+                continue
+            attrs = st.get("attributes") or {}
+            modes = attrs.get("supported_color_modes") or []
+            if any(m in rgb_modes for m in modes) or "rgb_color" in attrs:
+                capable.add(eid)
+        return capable
+
     def _physical_side_for_team(self, team_side: Side) -> PhysicalSide:
         return self._home_side if team_side == Side.HOME else opposite(self._home_side)
 
@@ -304,19 +330,35 @@ class Orchestrator:
 
         # Teams swap ends at the second-half kickoff (HT -> LIVE transition).
         if prev_phase == MatchPhase.HT and self._state.phase == MatchPhase.LIVE:
-            log.info("HT -> 2nd half: swapping home side")
-            await self.swap_sides()
+            if self._auto_swap_at_ht:
+                log.info("HT -> 2nd half: auto-swapping home side")
+                await self.swap_sides()
+            else:
+                log.info(
+                    "HT -> 2nd half: auto-swap disabled, keeping home_side=%s",
+                    self._home_side,
+                )
 
         effect = KIND_TO_EFFECT.get(event.kind)
+        handle: EffectHandle | None = None
         if effect is not None:
-            await self._run_effect_for(effect, event)
+            handle = await self._run_effect_for(effect, event)
+
+        # Wait for the event-triggered effect to finish before re-asserting
+        # ambient — otherwise ambient (priority 0) is dropped while a higher-
+        # priority effect still holds the lights, and the cache update means
+        # we never retry. Lights would stick on the effect's last step color.
+        if handle is not None:
+            with contextlib.suppress(Exception):
+                await handle.task
 
         await self._reassert_ambient()
 
-    async def _run_effect_for(self, effect: Effect, event: MatchEvent) -> None:
+    async def _run_effect_for(
+        self, effect: Effect, event: MatchEvent
+    ) -> EffectHandle | None:
         assert self._summary is not None
         benefiting = self._benefiting_side(event)
-        # For coloring, fall back to leader/HOME for phase events.
         team_side = benefiting or self._state.leading_side or Side.HOME
         team = self._summary.home if team_side == Side.HOME else self._summary.away
         opp = self._summary.away if team_side == Side.HOME else self._summary.home
@@ -334,12 +376,31 @@ class Orchestrator:
         if event.kind in _TEAM_SCOPED_KINDS and benefiting is not None:
             phys = self._physical_side_for_team(benefiting)
             target = self._entities(phys) + self._entities("both")
+            log.info(
+                "%s by %s -> phys side %s (home_side=%s) -> lights %s",
+                effect.id, benefiting.value, phys, self._home_side, target,
+            )
         else:
             target = self._all_entities()
+            log.info("%s -> all lights %s", effect.id, target)
 
         if not target:
+            return None
+        return await self._effects.run(effect, target, resolver)
+
+    async def test_flash(self, side: Side) -> None:
+        """Run a GOAL flash for `side` (HOME or AWAY) without going through the
+        provider/queue. UI calls this so users can verify their light->side
+        mapping at any time."""
+        if not self._summary or not self._lights:
             return
-        await self._effects.run(effect, target, resolver)
+        fake = MatchEvent(id="test-flash", kind=EventKind.GOAL, side=side)
+        effect = KIND_TO_EFFECT[EventKind.GOAL]
+        handle = await self._run_effect_for(effect, fake)
+        if handle is not None:
+            with contextlib.suppress(Exception):
+                await handle.task
+        await self._reassert_ambient()
 
     async def _reassert_ambient(self) -> None:
         if not self._summary or not self._lights:
@@ -356,7 +417,6 @@ class Orchestrator:
                 continue
             if self._last_ambient_by_pos.get(position) == choice.color:
                 continue
-            self._last_ambient_by_pos[position] = choice.color
             log.debug("ambient[%s] -> %s", position, choice.color)
             ambient_effect = Effect(
                 id=f"ambient-{position}",
@@ -373,4 +433,9 @@ class Orchestrator:
                 ],
             )
             color = choice.color
-            await self._effects.run(ambient_effect, eids, lambda _t, c=color: c)
+            handle = await self._effects.run(ambient_effect, eids, lambda _t, c=color: c)
+            # Only mark the cache if the dispatch was accepted; if a higher
+            # priority effect is still running, leave the cache stale so we
+            # retry next time.
+            if handle is not None:
+                self._last_ambient_by_pos[position] = choice.color

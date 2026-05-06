@@ -176,6 +176,7 @@ async function start() {
       match_id: matchId,
       lights: lightSlots,
       home_side: $("#home-side").value,
+      auto_swap_at_ht: $("#auto-swap").checked,
       tv_delay_s: Number($("#tv-delay").value),
       dry_run: $("#dry-run").checked,
       replay_path: provider === "replay" ? $("#replay-path").value.trim() : null,
@@ -291,6 +292,14 @@ async function swapSides() {
   }
 }
 
+async function testFlash(side) {
+  try {
+    await api("/debug/test_flash", { method: "POST", body: JSON.stringify({ side }) });
+  } catch (err) {
+    alert("Test flash failed: " + err.message);
+  }
+}
+
 function phaseKind(phase) {
   if (phase === "live" || phase === "extra_time" || phase === "penalty_shootout") return "ok";
   if (phase === "fulltime" || phase === "abandoned" || phase === "postponed") return "err";
@@ -347,6 +356,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#start").addEventListener("click", start);
   $("#kill-switch").addEventListener("click", stop);
   $("#swap-sides").addEventListener("click", (e) => { e.preventDefault(); swapSides(); });
+  $("#test-home").addEventListener("click", (e) => { e.preventDefault(); testFlash("home"); });
+  $("#test-away").addEventListener("click", (e) => { e.preventDefault(); testFlash("away"); });
   $("#tv-delay").addEventListener("input", () => {
     $("#tv-delay-readout").textContent = $("#tv-delay").value;
     updateDelay();

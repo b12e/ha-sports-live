@@ -51,10 +51,16 @@ class EffectRuntime:
         self._dry_run = dry_run
         self._on_finish = on_finish
         self._states: dict[str, _LightState] = {}
+        self._rgb_capable: set[str] = set()
         self._lock = asyncio.Lock()
 
     def set_dry_run(self, on: bool) -> None:
         self._dry_run = on
+
+    def set_rgb_capable(self, entities: set[str]) -> None:
+        """Tell the runtime which entity_ids accept rgb_color. Others get
+        brightness-only pulses so non-color lights still flash visibly."""
+        self._rgb_capable = set(entities)
 
     def _state_for(self, eid: str) -> _LightState:
         st = self._states.get(eid)
@@ -119,12 +125,27 @@ class EffectRuntime:
                     if color is None and step.brightness == 0:
                         await self._ha.turn_off(active, transition_s=trans_s)
                     else:
-                        await self._ha.turn_on(
-                            active,
-                            rgb=color,
-                            brightness=step.brightness,
-                            transition_s=trans_s,
-                        )
+                        # Split by RGB capability: color-capable lights take rgb,
+                        # everything else gets a brightness-only pulse so non-RGB
+                        # bulbs still flash in sync.
+                        if self._rgb_capable:
+                            rgb_lights = [e for e in active if e in self._rgb_capable]
+                            plain_lights = [e for e in active if e not in self._rgb_capable]
+                        else:
+                            rgb_lights, plain_lights = list(active), []
+                        if rgb_lights:
+                            await self._ha.turn_on(
+                                rgb_lights,
+                                rgb=color,
+                                brightness=step.brightness,
+                                transition_s=trans_s,
+                            )
+                        if plain_lights:
+                            await self._ha.turn_on(
+                                plain_lights,
+                                brightness=step.brightness,
+                                transition_s=trans_s,
+                            )
                 else:
                     log.info(
                         "[dry-run] %s step lights=%s color=%s b=%s t=%dms hold=%dms",

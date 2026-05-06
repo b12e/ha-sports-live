@@ -45,6 +45,10 @@
         <dt>TV delay</dt><dd><code id="tv-delay-live">0</code> s</dd>
       </dl>
       <div class="row">
+        <button id="test-home" class="link">Test home goal</button>
+        <button id="test-away" class="link">Test away goal</button>
+      </div>
+      <div class="row">
         <button id="kill-switch" class="danger">Stop &amp; restore lights</button>
       </div>
     </section>
@@ -113,7 +117,7 @@
       </div>
 
       <h3>Lights</h3>
-      <p class="muted">Pick the entities Sports Live should drive. Tag each with its physical position relative to your TV — home and away teams' colors will show on their respective sides, and goal flashes target the scoring team's side. Lights tagged "both" show the leading team's color (warm white on a tie). Sides auto-swap at the second-half kickoff.</p>
+      <p class="muted">Pick the entities Sports Live should drive. Tag each with its physical position relative to your TV — home and away teams' colors will show on their respective sides, and goal flashes target the scoring team's side. Lights tagged "both" show the leading team's color (warm white on a tie). Non-RGB lights flash via brightness pulses (no color).</p>
       <div id="lights" class="lights"></div>
 
       <label>Home is initially attacking
@@ -121,7 +125,12 @@
           <option value="left" selected>the left side of your TV</option>
           <option value="right">the right side of your TV</option>
         </select>
-        <small class="muted">If your default looks wrong on screen, hit "swap" once the match starts.</small>
+        <small class="muted">If your default looks wrong on screen, click "swap" in the live panel.</small>
+      </label>
+
+      <label class="row-inline">
+        <input id="auto-swap" type="checkbox" checked>
+        Auto-swap sides at the second-half kickoff
       </label>
 
       <label>TV delay
