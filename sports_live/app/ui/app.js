@@ -109,6 +109,29 @@ async function loadLights() {
   }
 }
 
+async function loadLastConfig() {
+  try {
+    const cfg = await api("/config/last");
+    if (Array.isArray(cfg.lights)) {
+      for (const l of cfg.lights) {
+        state.selectedLights.add(l.entity_id);
+        state.lightPositions.set(l.entity_id, l.position || "both");
+      }
+    }
+    if (cfg.home_side) $("#home-side").value = cfg.home_side;
+    if (typeof cfg.auto_swap_at_ht === "boolean") $("#auto-swap").checked = cfg.auto_swap_at_ht;
+    if (typeof cfg.tv_delay_s === "number") {
+      $("#tv-delay").value = String(cfg.tv_delay_s);
+      $("#tv-delay-readout").textContent = String(cfg.tv_delay_s);
+    }
+    renderLights();
+    refreshStartButton();
+  } catch (err) {
+    // Non-fatal — first run on a clean install.
+    console.debug("no last config:", err.message);
+  }
+}
+
 function renderLights() {
   const html = state.lights
     .filter((l) => l.entity_id.startsWith("light."))
@@ -365,7 +388,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $$("#mock button").forEach((b) =>
     b.addEventListener("click", () => injectMock(b.dataset.kind, b.dataset.side))
   );
-  loadLights();
+  // Restore last-used selection first, then list lights so pre-checked rows render correctly.
+  loadLastConfig().finally(loadLights);
   refreshStatus();
   setInterval(refreshStatus, 1500);
 });

@@ -209,6 +209,7 @@ def create_app(settings: Settings) -> FastAPI:
             "provider": req.provider,
             "lights": [{"entity_id": s.entity_id, "position": s.position} for s in req.lights],
             "home_side": req.home_side,
+            "auto_swap_at_ht": req.auto_swap_at_ht,
             "tv_delay_s": req.tv_delay_s,
             "dry_run": req.dry_run,
             "started_at": datetime.now(UTC).isoformat(),
@@ -236,6 +237,19 @@ def create_app(settings: Settings) -> FastAPI:
     async def swap_sides() -> dict[str, Any]:
         await orchestrator.swap_sides()
         return {"home_side": orchestrator.status().home_side}
+
+    @app.get("/api/config/last")
+    async def get_last_config() -> dict[str, Any]:
+        """Return the most recently used light selection / positions /
+        home_side / TV-delay so the UI can pre-fill the setup form."""
+        last = state_store.load().get("last") or {}
+        return {
+            "lights": last.get("lights") or [],
+            "home_side": last.get("home_side") or "left",
+            "tv_delay_s": last.get("tv_delay_s") or 0,
+            "auto_swap_at_ht": last.get("auto_swap_at_ht", True),
+            "provider": last.get("provider"),
+        }
 
     # ---- color overrides -------------------------------------------------
 

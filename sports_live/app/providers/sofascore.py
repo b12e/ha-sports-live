@@ -234,26 +234,47 @@ class SofascoreProvider(BaseProvider):
     async def subscribe(self, match_id: str) -> AsyncIterator[MatchEvent]:
         seen_incident_ids: set[str] = set()
         last_phase: MatchPhase | None = None
+        last_summary: MatchSummary | None = None
         burst_until = 0.0
         consecutive_failures = 0
         backoff = 30.0
         event_etag: str | None = None
         inc_etag: str | None = None
 
+        # Initial unconditional /incidents call seeds `seen_incident_ids` with
+        # everything that already happened in the match. Without this, the
+        # first 200 response inside the loop would yield every past incident,
+        # firing flash effects for every old goal/card.
+        try:
+            _, init_inc_body, inc_etag = await self._get(f"/event/{match_id}/incidents")
+            if init_inc_body and "incidents" in init_inc_body:
+                for inc in init_inc_body["incidents"]:
+                    ev = _incident_to_event(inc, str(match_id), None)
+                    if ev is not None:
+                        seen_incident_ids.add(ev.id)
+            log.info(
+                "subscribe(%s): catch-up silenced %d pre-existing incidents",
+                match_id, len(seen_incident_ids),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("incidents catch-up failed: %s", e)
+
         while True:
             now = asyncio.get_event_loop().time()
             in_burst = now < burst_until
 
-            # 1) Pull match summary (score, phase).
+            # 1) Pull match summary (score, phase). When /event returns 304
+            # we keep using the last good summary so step 2 still runs.
             try:
                 code, body, event_etag = await self._get(f"/event/{match_id}", etag=event_etag)
             except httpx.HTTPError as e:
                 log.warning("event fetch failed: %s", e)
                 code, body = 0, None
 
-            summary: MatchSummary | None = None
+            summary: MatchSummary | None = last_summary
             if body and "event" in body:
                 summary = _to_summary(body["event"])
+                last_summary = summary
                 if summary.phase != last_phase:
                     yield MatchEvent(
                         id=f"phase-{summary.phase.value}-{int(now)}",
