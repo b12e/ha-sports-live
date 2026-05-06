@@ -24,4 +24,7 @@ jobs:
       - uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: sports_live/Dockerfile
-          ignore: DL3008,DL3018
+          # DL3006: base image is parameterized via `ARG BUILD_FROM` (HA
+          # builder injects the per-arch tag at build time) so we can't
+          # pin it in the Dockerfile.
+          ignore: DL3006,DL3008,DL3018
