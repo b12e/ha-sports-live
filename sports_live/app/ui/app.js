@@ -7,6 +7,7 @@ const state = {
   picked: null,            // chosen MatchSummary (server payload)
   lights: [],              // [{entity_id, name, supports_color, …}]
   selectedLights: new Set(),
+  lightPositions: new Map(), // entity_id -> "left" | "right" | "both"
   status: null,            // last /api/match/status response
 };
 
@@ -111,20 +112,35 @@ async function loadLights() {
 function renderLights() {
   const html = state.lights
     .filter((l) => l.entity_id.startsWith("light."))
-    .map((l) => `
+    .map((l) => {
+      const checked = state.selectedLights.has(l.entity_id);
+      const pos = state.lightPositions.get(l.entity_id) || "both";
+      const opt = (v, label) =>
+        `<option value="${v}" ${pos === v ? "selected" : ""}>${label}</option>`;
+      return `
       <label class="light-row ${l.supports_color ? "" : "muted"}">
-        <input type="checkbox" data-eid="${l.entity_id}" ${state.selectedLights.has(l.entity_id) ? "checked" : ""}>
+        <input type="checkbox" data-eid="${l.entity_id}" ${checked ? "checked" : ""}>
         <span class="light-name">${escape(l.name)}</span>
-        <span class="light-eid"><code>${l.entity_id}</code></span>
+        <select class="light-pos" data-eid="${l.entity_id}" ${checked ? "" : "disabled"}>
+          ${opt("both", "Both")}${opt("left", "Left")}${opt("right", "Right")}
+        </select>
         <span class="light-state ${l.state === "on" ? "on" : ""}">${l.state}</span>
-      </label>`)
+      </label>`;
+    })
     .join("") || `<p class="muted">No lights found.</p>`;
   $("#lights").innerHTML = html;
   $$("#lights input[type=checkbox]").forEach((c) =>
     c.addEventListener("change", () => {
       if (c.checked) state.selectedLights.add(c.dataset.eid);
       else state.selectedLights.delete(c.dataset.eid);
+      const sel = $(`select.light-pos[data-eid="${CSS.escape(c.dataset.eid)}"]`);
+      if (sel) sel.disabled = !c.checked;
       refreshStartButton();
+    })
+  );
+  $$("#lights select.light-pos").forEach((s) =>
+    s.addEventListener("change", () => {
+      state.lightPositions.set(s.dataset.eid, s.value);
     })
   );
 }
@@ -151,10 +167,15 @@ async function start() {
     let matchId = "replay";
     if (provider === "sofascore" || provider === "mock") matchId = state.picked.id;
     else if (provider === "sofascore_replay") matchId = $("#sofa-event-id").value.trim();
+    const lightSlots = Array.from(state.selectedLights).map((eid) => ({
+      entity_id: eid,
+      position: state.lightPositions.get(eid) || "both",
+    }));
     const body = {
       provider,
       match_id: matchId,
-      lights: Array.from(state.selectedLights),
+      lights: lightSlots,
+      home_side: $("#home-side").value,
       tv_delay_s: Number($("#tv-delay").value),
       dry_run: $("#dry-run").checked,
       replay_path: provider === "replay" ? $("#replay-path").value.trim() : null,
@@ -243,10 +264,31 @@ function renderStatus() {
   $("#last-event").textContent = s.last_event
     ? `${s.last_event.kind}${s.last_event.minute != null ? ` ${s.last_event.minute}'` : ""}${s.last_event.side ? ` (${s.last_event.side})` : ""}`
     : "—";
-  $("#ambient-rgb").textContent = s.ambient ? `rgb(${s.ambient.join(", ")})` : "—";
-  $("#ambient-swatch").style.background = s.ambient ? rgbToHex(s.ambient) : "transparent";
+
+  // Sides indicator
+  const homeOnLeft = s.home_side === "left";
+  $("#side-home-name").textContent = (s.home && (s.home.short_name || s.home.name)) || "Home";
+  $("#side-away-name").textContent = (s.away && (s.away.short_name || s.away.name)) || "Away";
+  $("#side-home-arrow").textContent = homeOnLeft ? "←" : "→";
+  $("#side-away-arrow").textContent = homeOnLeft ? "→" : "←";
+
+  // Ambient swatches (left / both / right)
+  const amb = s.ambient || {};
+  $("#amb-left-swatch").style.background = amb.left ? rgbToHex(amb.left) : "transparent";
+  $("#amb-both-swatch").style.background = amb.both ? rgbToHex(amb.both) : "transparent";
+  $("#amb-right-swatch").style.background = amb.right ? rgbToHex(amb.right) : "transparent";
+
   $("#pending").textContent = s.pending_events;
   $("#tv-delay-live").textContent = s.tv_delay_s;
+}
+
+async function swapSides() {
+  try {
+    await api("/match/swap_sides", { method: "POST" });
+    await refreshStatus();
+  } catch (err) {
+    alert("Swap failed: " + err.message);
+  }
 }
 
 function phaseKind(phase) {
@@ -304,6 +346,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#unpick").addEventListener("click", unpick);
   $("#start").addEventListener("click", start);
   $("#kill-switch").addEventListener("click", stop);
+  $("#swap-sides").addEventListener("click", (e) => { e.preventDefault(); swapSides(); });
   $("#tv-delay").addEventListener("input", () => {
     $("#tv-delay-readout").textContent = $("#tv-delay").value;
     updateDelay();

@@ -15,6 +15,7 @@ from .. import __version__, state_store
 from ..colors.resolver import ColorResolver
 from ..ha_client import HAClient
 from ..orchestrator.engine import Orchestrator
+from ..orchestrator.sides import LightSlot
 from ..providers.base import EventKind, MatchEvent, Side
 from ..providers.mock import MockProvider
 from ..providers.replay import InMemoryReplayProvider, ReplayProvider
@@ -25,10 +26,16 @@ log = logging.getLogger(__name__)
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
 
+class LightSlotReq(BaseModel):
+    entity_id: str
+    position: Literal["left", "right", "both"] = "both"
+
+
 class StartReq(BaseModel):
     match_id: str
     provider: Literal["sofascore", "mock", "replay", "sofascore_replay"] = "sofascore"
-    lights: list[str] = Field(default_factory=list)
+    lights: list[LightSlotReq] = Field(default_factory=list)
+    home_side: Literal["left", "right"] = "left"
     tv_delay_s: float = 0.0
     dry_run: bool = False
     replay_path: str | None = None
@@ -176,9 +183,14 @@ def create_app(settings: Settings) -> FastAPI:
                 await prov.aclose()
                 raise HTTPException(status_code=502, detail=f"match lookup failed: {e}") from e
 
+        light_slots = [LightSlot(entity_id=s.entity_id, position=s.position) for s in req.lights]
         orchestrator.set_dry_run(req.dry_run)
         try:
-            await orchestrator.start(prov, summary, req.lights, tv_delay_s=req.tv_delay_s)
+            await orchestrator.start(
+                prov, summary, light_slots,
+                tv_delay_s=req.tv_delay_s,
+                home_side=req.home_side,
+            )
         except Exception:
             await prov.aclose()
             raise
@@ -189,7 +201,8 @@ def create_app(settings: Settings) -> FastAPI:
         persisted["last"] = {
             "match_id": req.match_id,
             "provider": req.provider,
-            "lights": req.lights,
+            "lights": [{"entity_id": s.entity_id, "position": s.position} for s in req.lights],
+            "home_side": req.home_side,
             "tv_delay_s": req.tv_delay_s,
             "dry_run": req.dry_run,
             "started_at": datetime.now(UTC).isoformat(),
@@ -212,6 +225,11 @@ def create_app(settings: Settings) -> FastAPI:
     async def set_tv_delay(seconds: float) -> dict[str, Any]:
         await orchestrator.set_tv_delay(seconds)
         return {"tv_delay_s": orchestrator.status().tv_delay_s}
+
+    @app.post("/api/match/swap_sides")
+    async def swap_sides() -> dict[str, Any]:
+        await orchestrator.swap_sides()
+        return {"home_side": orchestrator.status().home_side}
 
     # ---- color overrides -------------------------------------------------
 

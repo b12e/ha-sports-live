@@ -11,20 +11,34 @@ from .. import state_store
 from ..colors.resolver import ColorResolver
 from ..effects.catalog import KIND_TO_EFFECT
 from ..effects.runtime import EffectRuntime
-from ..effects.schemas import Effect
+from ..effects.schemas import PRIO_AMBIENT, Effect, Step
 from ..ha_client import HAClient
 from ..providers.base import (
     BaseProvider,
     EventKind,
     MatchEvent,
+    MatchPhase,
     MatchSummary,
     Side,
 )
-from .ambient import AmbientChoice, AmbientResolver
+from .ambient import AmbientResolver
 from .delay_queue import DelayQueue
+from .sides import LightSlot, PhysicalSide, Position, opposite
 from .state_machine import MatchState, apply_event
 
 log = logging.getLogger(__name__)
+
+# Events whose visual flash should target only the benefiting team's side
+# (plus any "both"-tagged lights). Phase / VAR events always span everything.
+_TEAM_SCOPED_KINDS = {
+    EventKind.GOAL,
+    EventKind.OWN_GOAL,
+    EventKind.PENALTY_GOAL,
+    EventKind.YELLOW_CARD,
+    EventKind.RED_CARD,
+    EventKind.PENALTY_AWARDED,
+    EventKind.BIG_CHANCE,
+}
 
 
 @dataclass
@@ -33,7 +47,10 @@ class OrchestratorStatus:
     match_id: str | None = None
     summary: MatchSummary | None = None
     state: MatchState = field(default_factory=MatchState)
-    ambient: tuple[int, int, int] | None = None
+    ambient_left: tuple[int, int, int] | None = None
+    ambient_right: tuple[int, int, int] | None = None
+    ambient_both: tuple[int, int, int] | None = None
+    home_side: PhysicalSide = "left"
     last_event: MatchEvent | None = None
     pending_events: int = 0
     tv_delay_s: float = 0.0
@@ -47,7 +64,12 @@ class OrchestratorStatus:
             "phase": self.state.phase.value,
             "score_home": self.state.score_home,
             "score_away": self.state.score_away,
-            "ambient": list(self.ambient) if self.ambient else None,
+            "home_side": self.home_side,
+            "ambient": {
+                "left": list(self.ambient_left) if self.ambient_left else None,
+                "right": list(self.ambient_right) if self.ambient_right else None,
+                "both": list(self.ambient_both) if self.ambient_both else None,
+            },
             "pending_events": self.pending_events,
             "tv_delay_s": self.tv_delay_s,
             "dry_run": self.dry_run,
@@ -76,15 +98,7 @@ class OrchestratorStatus:
 
 
 class Orchestrator:
-    """Top-level coordinator. One instance per add-on.
-
-    Lifecycle:
-        start(provider, summary, lights, tv_delay_s)
-            -> capture pre-match scene, subscribe to provider, run delay
-               queue worker that dispatches effects, hold ambient.
-        stop()
-            -> cancel tasks, restore captured scene.
-    """
+    """Top-level coordinator. One instance per add-on."""
 
     def __init__(self, ha: HAClient, colors: ColorResolver) -> None:
         self._ha = ha
@@ -94,11 +108,14 @@ class Orchestrator:
         self._queue: DelayQueue[MatchEvent] = DelayQueue()
         self._provider: BaseProvider | None = None
         self._summary: MatchSummary | None = None
-        self._lights: list[str] = []
+        self._lights: list[LightSlot] = []
+        self._home_side: PhysicalSide = "left"
         self._captured_scene: list[dict[str, Any]] | None = None
         self._state = MatchState()
         self._last_event: MatchEvent | None = None
-        self._last_ambient: tuple[int, int, int] | None = None
+        self._last_ambient_by_pos: dict[Position, tuple[int, int, int] | None] = {
+            "left": None, "right": None, "both": None,
+        }
         self._provider_task: asyncio.Task | None = None
         self._dispatch_task: asyncio.Task | None = None
         self._failure: str | None = None
@@ -112,7 +129,10 @@ class Orchestrator:
             match_id=self._summary.id if self._summary else None,
             summary=self._summary,
             state=self._state,
-            ambient=self._last_ambient,
+            ambient_left=self._last_ambient_by_pos["left"],
+            ambient_right=self._last_ambient_by_pos["right"],
+            ambient_both=self._last_ambient_by_pos["both"],
+            home_side=self._home_side,
             last_event=self._last_event,
             pending_events=len(self._queue.snapshot()),
             tv_delay_s=self._queue.offset_s,
@@ -126,13 +146,22 @@ class Orchestrator:
     def set_dry_run(self, on: bool) -> None:
         self._effects.set_dry_run(on)
 
+    async def swap_sides(self) -> None:
+        """Manually flip which physical side is home's. Auto-fires at second-half kickoff."""
+        self._home_side = opposite(self._home_side)
+        log.info("home is now playing on the %s", self._home_side)
+        # Force ambient to re-render at the new positions.
+        self._last_ambient_by_pos = {"left": None, "right": None, "both": None}
+        await self._reassert_ambient()
+
     async def start(
         self,
         provider: BaseProvider,
         summary: MatchSummary,
-        lights: list[str],
+        lights: list[LightSlot],
         *,
         tv_delay_s: float = 0.0,
+        home_side: PhysicalSide = "left",
     ) -> None:
         async with self._lock:
             if self._provider is not None:
@@ -140,28 +169,32 @@ class Orchestrator:
             self._provider = provider
             self._summary = summary
             self._lights = list(lights)
+            self._home_side = home_side
             self._state = MatchState(
                 phase=summary.phase,
                 score_home=summary.score_home,
                 score_away=summary.score_away,
             )
             self._last_event = None
-            self._last_ambient = None
+            self._last_ambient_by_pos = {"left": None, "right": None, "both": None}
             self._failure = None
             await self._queue.set_offset(tv_delay_s)
 
-            log.info("capturing pre-match scene for %d lights", len(self._lights))
+            log.info(
+                "capturing pre-match scene for %d lights (home on %s)",
+                len(self._lights), self._home_side,
+            )
             try:
-                self._captured_scene = await self._ha.capture_scene(self._lights)
+                self._captured_scene = await self._ha.capture_scene(self._all_entities())
             except Exception as e:  # noqa: BLE001
                 log.warning("scene capture failed: %s", e)
                 self._captured_scene = []
 
-            # Persist enough to recover on ungraceful restart.
             persisted = state_store.load()
             persisted["active"] = {
                 "match_id": summary.id,
-                "lights": list(self._lights),
+                "lights": [{"entity_id": s.entity_id, "position": s.position} for s in self._lights],
+                "home_side": self._home_side,
                 "tv_delay_s": tv_delay_s,
                 "captured_scene": self._captured_scene,
                 "started_at": datetime.now(UTC).isoformat(),
@@ -196,7 +229,6 @@ class Orchestrator:
                     await self._ha.restore_scene(self._captured_scene)
                 except Exception as e:  # noqa: BLE001
                     log.warning("scene restore failed: %s", e)
-            # Clear persistent active record now that we've shut down cleanly.
             persisted = state_store.load()
             if "active" in persisted:
                 persisted.pop("active", None)
@@ -204,6 +236,38 @@ class Orchestrator:
             self._captured_scene = None
             self._summary = None
             self._lights = []
+
+    # ---- light-grouping helpers ----------------------------------------
+
+    def _entities(self, position: Position) -> list[str]:
+        return [s.entity_id for s in self._lights if s.position == position]
+
+    def _all_entities(self) -> list[str]:
+        return [s.entity_id for s in self._lights]
+
+    def _physical_side_for_team(self, team_side: Side) -> PhysicalSide:
+        return self._home_side if team_side == Side.HOME else opposite(self._home_side)
+
+    def _benefiting_side(self, event: MatchEvent) -> Side | None:
+        """The team that a flash should celebrate / mark.
+
+        For OWN_GOAL the benefiting team is the *opposite* of the player's side.
+        For other events: prefer event.side, fall back to team_id lookup.
+        """
+        if event.kind == EventKind.OWN_GOAL and event.side is not None:
+            return Side.AWAY if event.side == Side.HOME else Side.HOME
+        if event.side is not None:
+            return event.side
+        return self._side_for_team(event.team_id)
+
+    def _side_for_team(self, team_id: str | None) -> Side | None:
+        if team_id is None or self._summary is None:
+            return None
+        if team_id == self._summary.home.id:
+            return Side.HOME
+        if team_id == self._summary.away.id:
+            return Side.AWAY
+        return None
 
     # ---- internal loops -------------------------------------------------
 
@@ -229,6 +293,7 @@ class Orchestrator:
 
     async def _handle_event(self, event: MatchEvent) -> None:
         assert self._summary is not None
+        prev_phase = self._state.phase
         self._state = apply_event(self._state, event)
         self._last_event = event
         log.info(
@@ -237,23 +302,22 @@ class Orchestrator:
             self._state.score_away, self._state.phase.value,
         )
 
+        # Teams swap ends at the second-half kickoff (HT -> LIVE transition).
+        if prev_phase == MatchPhase.HT and self._state.phase == MatchPhase.LIVE:
+            log.info("HT -> 2nd half: swapping home side")
+            await self.swap_sides()
+
         effect = KIND_TO_EFFECT.get(event.kind)
         if effect is not None:
             await self._run_effect_for(effect, event)
 
-        # Edge-triggered ambient re-assert: only when the desired ambient changes.
         await self._reassert_ambient()
-
-        if self._state.is_terminal and event.kind == EventKind.FT:
-            # Let FULLTIME effect finish before restoring (no auto-restore).
-            pass
 
     async def _run_effect_for(self, effect: Effect, event: MatchEvent) -> None:
         assert self._summary is not None
-        team_side = event.side or self._side_for_team(event.team_id)
-        if team_side is None:
-            # Phase events (kickoff/HT/FT) — pick leader if any, else home as neutral.
-            team_side = self._state.leading_side or Side.HOME
+        benefiting = self._benefiting_side(event)
+        # For coloring, fall back to leader/HOME for phase events.
+        team_side = benefiting or self._state.leading_side or Side.HOME
         team = self._summary.home if team_side == Side.HOME else self._summary.away
         opp = self._summary.away if team_side == Side.HOME else self._summary.home
 
@@ -266,39 +330,47 @@ class Orchestrator:
                 return self._colors.secondary(team)
             return (255, 255, 255)
 
-        await self._effects.run(effect, self._lights, resolver)
+        # Decide which lights to target.
+        if event.kind in _TEAM_SCOPED_KINDS and benefiting is not None:
+            phys = self._physical_side_for_team(benefiting)
+            target = self._entities(phys) + self._entities("both")
+        else:
+            target = self._all_entities()
 
-    def _side_for_team(self, team_id: str | None) -> Side | None:
-        if team_id is None or self._summary is None:
-            return None
-        if team_id == self._summary.home.id:
-            return Side.HOME
-        if team_id == self._summary.away.id:
-            return Side.AWAY
-        return None
+        if not target:
+            return
+        await self._effects.run(effect, target, resolver)
 
     async def _reassert_ambient(self) -> None:
         if not self._summary or not self._lights:
             return
-        choice: AmbientChoice = self._ambient.choose(self._state, self._summary)
-        if choice.color == self._last_ambient:
-            return
-        self._last_ambient = choice.color
-        log.debug("ambient -> %s", choice.color)
-        # Use a low-priority effect so live event flashes can preempt.
-        from ..effects.schemas import PRIO_AMBIENT, Effect, Step
-        ambient_effect = Effect(
-            id="ambient",
-            priority=PRIO_AMBIENT,
-            coalesce=True,
-            restore_after=False,
-            steps=[
-                Step(
-                    color=choice.color,
-                    brightness=choice.brightness,
-                    transition_ms=int(choice.transition_s * 1000),
-                    hold_ms=0,
-                ),
-            ],
-        )
-        await self._effects.run(ambient_effect, self._lights, lambda _t: choice.color)
+        plan = self._ambient.choose(self._state, self._summary, home_side=self._home_side)
+
+        for position, choice in (
+            ("left", plan.left),
+            ("right", plan.right),
+            ("both", plan.both),
+        ):
+            eids = self._entities(position)
+            if not eids:
+                continue
+            if self._last_ambient_by_pos.get(position) == choice.color:
+                continue
+            self._last_ambient_by_pos[position] = choice.color
+            log.debug("ambient[%s] -> %s", position, choice.color)
+            ambient_effect = Effect(
+                id=f"ambient-{position}",
+                priority=PRIO_AMBIENT,
+                coalesce=True,
+                restore_after=False,
+                steps=[
+                    Step(
+                        color=choice.color,
+                        brightness=choice.brightness,
+                        transition_ms=int(choice.transition_s * 1000),
+                        hold_ms=0,
+                    ),
+                ],
+            )
+            color = choice.color
+            await self._effects.run(ambient_effect, eids, lambda _t, c=color: c)

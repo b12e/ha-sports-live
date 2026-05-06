@@ -30,7 +30,17 @@
       <dl>
         <dt>Phase</dt><dd><code id="phase">—</code></dd>
         <dt>Last event</dt><dd><code id="last-event">—</code></dd>
-        <dt>Ambient</dt><dd><span id="ambient-swatch" class="swatch"></span> <code id="ambient-rgb">—</code></dd>
+        <dt>Sides</dt><dd>
+          <span id="side-readout"><strong id="side-home-name">Home</strong> <code id="side-home-arrow">←</code> · <code id="side-away-arrow">→</code> <strong id="side-away-name">Away</strong></span>
+          <button id="swap-sides" class="link">swap</button>
+        </dd>
+        <dt>Ambient</dt><dd>
+          <span class="swatch-trio">
+            <span><span id="amb-left-swatch" class="swatch"></span><small>L</small></span>
+            <span><span id="amb-both-swatch" class="swatch"></span><small>·</small></span>
+            <span><span id="amb-right-swatch" class="swatch"></span><small>R</small></span>
+          </span>
+        </dd>
         <dt>Pending</dt><dd><code id="pending">0</code></dd>
         <dt>TV delay</dt><dd><code id="tv-delay-live">0</code> s</dd>
       </dl>
@@ -103,8 +113,16 @@
       </div>
 
       <h3>Lights</h3>
-      <p class="muted">Pick the entities Sports Live should drive. Only RGB-capable lights are useful.</p>
+      <p class="muted">Pick the entities Sports Live should drive. Tag each with its physical position relative to your TV — home and away teams' colors will show on their respective sides, and goal flashes target the scoring team's side. Lights tagged "both" show the leading team's color (warm white on a tie). Sides auto-swap at the second-half kickoff.</p>
       <div id="lights" class="lights"></div>
+
+      <label>Home is initially attacking
+        <select id="home-side">
+          <option value="left" selected>the left side of your TV</option>
+          <option value="right">the right side of your TV</option>
+        </select>
+        <small class="muted">If your default looks wrong on screen, hit "swap" once the match starts.</small>
+      </label>
 
       <label>TV delay
         <input id="tv-delay" type="range" min="0" max="60" step="1" value="0">

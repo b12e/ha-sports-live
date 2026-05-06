@@ -164,6 +164,19 @@ code {
   vertical-align: middle;
 }
 
+.swatch-trio {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.swatch-trio > span {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+.swatch-trio small { color: var(--muted); font-size: 0.65rem; }
+
 /* live panel */
 .score-row {
   display: grid;
@@ -218,7 +231,7 @@ code {
 }
 .light-row {
   display: grid;
-  grid-template-columns: auto 1fr 2fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 0.6rem;
   padding: 0.4rem 0.5rem;
@@ -228,7 +241,16 @@ code {
 }
 .light-row:hover { background: var(--panel-2); }
 .light-name { color: var(--fg); }
-.light-eid code { font-size: 0.75rem; color: var(--muted); }
+.light-pos {
+  width: auto;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 4px;
+}
+.light-pos:disabled { opacity: 0.4; }
 .light-state { font-size: 0.7rem; color: var(--muted); padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--border); }
 .light-state.on { color: var(--ok); background: rgba(63, 185, 80, 0.12); }
 
