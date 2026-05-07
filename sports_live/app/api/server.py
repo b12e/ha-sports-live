@@ -17,6 +17,8 @@ from ..ha_client import HAClient
 from ..orchestrator.engine import Orchestrator
 from ..orchestrator.sides import LightSlot
 from ..providers.base import Side
+from ..providers.espn import EspnProvider, find_match_for_summary
+from ..providers.merged import MergedProvider
 from ..providers.replay import InMemoryReplayProvider
 from ..providers.sofascore import SofascoreProvider
 from ..settings import Settings
@@ -202,12 +204,34 @@ def create_app(settings: Settings) -> FastAPI:
             await sofa.aclose()
             prov = InMemoryReplayProvider(records, summary, speed=req.replay_speed)
         else:
-            prov = SofascoreProvider()
+            sofa = SofascoreProvider()
             try:
-                summary = await prov.get_match(req.match_id)
+                summary = await sofa.get_match(req.match_id)
             except Exception as e:  # noqa: BLE001
-                await prov.aclose()
+                await sofa.aclose()
                 raise HTTPException(status_code=502, detail=f"match lookup failed: {e}") from e
+            # Try to attach ESPN as a second source. Race them; whichever
+            # source sees an event first wins. Falls back to Sofascore-only
+            # if no ESPN match is found.
+            try:
+                espn_lookup = await find_match_for_summary(summary)
+            except Exception as e:  # noqa: BLE001
+                log.warning("ESPN lookup failed: %s", e)
+                espn_lookup = None
+            if espn_lookup:
+                slug, espn_id = espn_lookup
+                log.info("attaching ESPN as 2nd source: %s/%s", slug, espn_id)
+                prov = MergedProvider(
+                    sofa,
+                    EspnProvider(slug),
+                    primary_match_id=req.match_id,
+                    secondary_match_id=espn_id,
+                    primary_name="sofascore",
+                    secondary_name="espn",
+                )
+            else:
+                log.info("no ESPN counterpart found; running Sofascore-only")
+                prov = sofa
 
         light_slots = [LightSlot(entity_id=s.entity_id, position=s.position) for s in req.lights]
         orchestrator.set_dry_run(req.dry_run)

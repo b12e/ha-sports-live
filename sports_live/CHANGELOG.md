@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.5 (2026-05-07)
+
+- **Multi-source aggregation: Sofascore + ESPN.** When you start a match,
+  the addon now also tries to find the same fixture on ESPN and races
+  the two sources. Whichever feed sees a goal/card/VAR first wins;
+  duplicates from the slower source are silently dropped (matched on
+  `kind + side + minute±1` within a 60s window). When Sofascore's
+  upstream is laggy — as it was during recent Champions League knockouts
+  — ESPN often beats it; when ESPN lags, Sofascore wins. The fastest of
+  the two per-event reaches your lights.
+- ESPN match lookup walks a curated set of league slugs (FIFA WC + WC
+  qualifiers, UEFA Champions / Europa / Conference / Euro / Nations,
+  Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Eredivisie,
+  Primeira Liga, Belgian Pro League). If no ESPN counterpart is found
+  the addon falls back to Sofascore-only — same behavior as 0.1.4.
+- Six unit tests cover the dedup window: same kind+side+minute drops the
+  late one, same kind with minute±1 dedupes, different sides or kinds
+  don't dedupe, the merge interleaves correctly, and either source can
+  win.
+
 ## 0.1.4 (2026-05-07)
 
 - Drop the **Mock (manual events)** and **Replay (JSONL file)** provider

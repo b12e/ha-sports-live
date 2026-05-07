@@ -21,6 +21,6 @@ RUN chmod a+x /etc/services.d/sports-live/run /etc/services.d/sports-live/finish
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD wget -qO- http://127.0.0.1:8099/api/healthz >/dev/null 2>&1 || exit 1
 
-LABEL io.hass.version="0.1.4" \
+LABEL io.hass.version="0.1.5" \
       io.hass.type="addon" \
       io.hass.arch="aarch64|amd64"
