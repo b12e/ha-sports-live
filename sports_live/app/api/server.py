@@ -16,9 +16,8 @@ from ..colors.resolver import ColorResolver
 from ..ha_client import HAClient
 from ..orchestrator.engine import Orchestrator
 from ..orchestrator.sides import LightSlot
-from ..providers.base import EventKind, MatchEvent, Side
-from ..providers.mock import MockProvider
-from ..providers.replay import InMemoryReplayProvider, ReplayProvider
+from ..providers.base import Side
+from ..providers.replay import InMemoryReplayProvider
 from ..providers.sofascore import SofascoreProvider
 from ..settings import Settings
 
@@ -33,13 +32,12 @@ class LightSlotReq(BaseModel):
 
 class StartReq(BaseModel):
     match_id: str
-    provider: Literal["sofascore", "mock", "replay", "sofascore_replay"] = "sofascore"
+    provider: Literal["sofascore", "sofascore_replay"] = "sofascore"
     lights: list[LightSlotReq] = Field(default_factory=list)
     home_side: Literal["left", "right"] = "left"
     auto_swap_at_ht: bool = True
     tv_delay_s: float = 0.0
     dry_run: bool = False
-    replay_path: str | None = None
     replay_speed: float = 1.0
 
 
@@ -54,12 +52,6 @@ class ReplayPreviewReq(BaseModel):
 class ColorOverrideReq(BaseModel):
     team_id: str
     rgb: tuple[int, int, int] | None = None
-
-
-class InjectReq(BaseModel):
-    kind: EventKind
-    side: Side | None = None
-    minute: int | None = None
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -103,8 +95,6 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.ha = ha
     app.state.colors = colors
     app.state.orchestrator = orchestrator
-    # Active provider instance (for inject API access to MockProvider).
-    app.state.provider = None
 
     # ---- health & static -------------------------------------------------
 
@@ -173,10 +163,10 @@ def create_app(settings: Settings) -> FastAPI:
         ]
 
     @app.get("/api/match/search")
-    async def search(q: str = "", provider: str = "sofascore") -> list[dict[str, Any]]:
+    async def search(q: str = "") -> list[dict[str, Any]]:
         if not q.strip():
             return []
-        prov = _make_provider(provider)
+        prov = SofascoreProvider()
         try:
             results = await prov.search_matches(q)
         finally:
@@ -198,7 +188,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/api/match/start")
     async def start(req: StartReq) -> dict[str, Any]:
-        if app.state.provider is not None or orchestrator.status().running:
+        if orchestrator.status().running:
             raise HTTPException(status_code=409, detail="already running; stop first")
 
         if req.provider == "sofascore_replay":
@@ -212,9 +202,7 @@ def create_app(settings: Settings) -> FastAPI:
             await sofa.aclose()
             prov = InMemoryReplayProvider(records, summary, speed=req.replay_speed)
         else:
-            prov = _make_provider(
-                req.provider, replay_path=req.replay_path, replay_speed=req.replay_speed
-            )
+            prov = SofascoreProvider()
             try:
                 summary = await prov.get_match(req.match_id)
             except Exception as e:  # noqa: BLE001
@@ -233,7 +221,6 @@ def create_app(settings: Settings) -> FastAPI:
         except Exception:
             await prov.aclose()
             raise
-        app.state.provider = prov
 
         # Persist last-used selection so a restart can resume.
         persisted = state_store.load()
@@ -254,7 +241,6 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/api/match/stop")
     async def stop(restore: bool = True) -> dict[str, Any]:
         await orchestrator.stop(restore=restore)
-        app.state.provider = None
         return {"running": False, "restored": restore}
 
     @app.get("/api/match/status")
@@ -300,20 +286,6 @@ def create_app(settings: Settings) -> FastAPI:
 
     # ---- debug & dev -----------------------------------------------------
 
-    @app.post("/api/debug/inject")
-    async def inject(req: InjectReq) -> dict[str, Any]:
-        prov = app.state.provider
-        if not isinstance(prov, MockProvider):
-            raise HTTPException(status_code=400, detail="not running on mock provider")
-        ev = MatchEvent(
-            id=f"mock-{datetime.now(UTC).timestamp()}",
-            kind=req.kind,
-            side=req.side,
-            minute=req.minute,
-        )
-        await prov.inject(ev)
-        return {"injected": req.kind.value}
-
     @app.post("/api/debug/dry_run")
     async def set_dry_run(on: bool) -> dict[str, Any]:
         orchestrator.set_dry_run(on)
@@ -350,20 +322,3 @@ def create_app(settings: Settings) -> FastAPI:
         }
 
     return app
-
-
-def _make_provider(
-    name: str,
-    *,
-    replay_path: str | None = None,
-    replay_speed: float = 1.0,
-) -> Any:
-    if name == "sofascore":
-        return SofascoreProvider()
-    if name == "mock":
-        return MockProvider()
-    if name == "replay":
-        if not replay_path:
-            raise HTTPException(status_code=400, detail="replay_path required")
-        return ReplayProvider(replay_path, speed=replay_speed)
-    raise HTTPException(status_code=400, detail=f"unknown provider: {name}")

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.4 (2026-05-07)
+
+- Drop the **Mock (manual events)** and **Replay (JSONL file)** provider
+  options from the UI dropdown — they were dev-only and confusing
+  alongside the real options. The mock-injectors panel is gone too.
+- Rename **Sofascore (live)** → **Sofascore**.
+- API surface trimmed to match: `StartReq.provider` accepts only
+  `sofascore` or `sofascore_replay`, `replay_path` is gone, the
+  `POST /api/debug/inject` route is removed. The internal
+  `MockProvider` / `ReplayProvider` classes stay for tests.
+
 ## 0.1.3 (2026-05-06)
 
 - **Filter minor competitions out of the live picker.** Regional 4th-tier

@@ -53,36 +53,14 @@
       </div>
     </section>
 
-    <!-- MOCK INJECTORS (only when running on mock) -->
-    <section id="mock" class="card hidden">
-      <h2>Inject mock event</h2>
-      <div class="inject-grid">
-        <button data-kind="goal"           data-side="home">Goal HOME</button>
-        <button data-kind="goal"           data-side="away">Goal AWAY</button>
-        <button data-kind="yellow_card"    data-side="home">Yellow HOME</button>
-        <button data-kind="yellow_card"    data-side="away">Yellow AWAY</button>
-        <button data-kind="red_card"       data-side="home">Red HOME</button>
-        <button data-kind="red_card"       data-side="away">Red AWAY</button>
-        <button data-kind="penalty_awarded" data-side="home">Pen HOME</button>
-        <button data-kind="penalty_awarded" data-side="away">Pen AWAY</button>
-        <button data-kind="var_review">VAR</button>
-        <button data-kind="big_chance"     data-side="home">Big chance</button>
-        <button data-kind="kickoff">Kickoff</button>
-        <button data-kind="halftime">Halftime</button>
-        <button data-kind="fulltime">Fulltime</button>
-      </div>
-    </section>
-
     <!-- SETUP PANEL (only when not running) -->
     <section id="setup" class="card">
       <h2>Set up a match</h2>
 
       <label>Provider
         <select id="provider">
-          <option value="sofascore">Sofascore (live)</option>
+          <option value="sofascore">Sofascore</option>
           <option value="sofascore_replay">Replay finished Sofascore match</option>
-          <option value="mock">Mock (manual events)</option>
-          <option value="replay">Replay (JSONL file)</option>
         </select>
       </label>
 
@@ -102,10 +80,6 @@
 
       <label id="search-row" class="hidden">Search
         <input id="q" type="search" placeholder="Belgium, France, Real Madrid…" autocomplete="off">
-      </label>
-
-      <label id="replay-row" class="hidden">Replay file path
-        <input id="replay-path" type="text" placeholder="/share/replay-belgium-canada.jsonl">
       </label>
 
       <div id="sofa-replay-row" class="hidden">

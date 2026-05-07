@@ -138,15 +138,10 @@ function stopLiveRefresh() {
 
 const doSearch = debounce(async () => {
   const q = $("#q").value.trim();
-  const provider = $("#provider").value;
   $("#results").innerHTML = "";
   if (!q) return;
-  if (provider !== "sofascore" && provider !== "mock") {
-    $("#results").innerHTML = `<p class="muted">Switch provider to "Sofascore" or "Mock" to search.</p>`;
-    return;
-  }
   try {
-    const results = await api(`/match/search?provider=${provider}&q=${encodeURIComponent(q)}`);
+    const results = await api(`/match/search?provider=sofascore&q=${encodeURIComponent(q)}`);
     if (!results.length) {
       $("#results").innerHTML = `<p class="muted">No matches for "${q}".</p>`;
       return;
@@ -268,9 +263,7 @@ function renderLights() {
 function refreshStartButton() {
   const provider = $("#provider").value;
   let ready = false;
-  if (provider === "replay") {
-    ready = Boolean($("#replay-path").value.trim()) && state.selectedLights.size > 0;
-  } else if (provider === "sofascore_replay") {
+  if (provider === "sofascore_replay") {
     ready = Boolean($("#sofa-event-id").value.trim()) && state.selectedLights.size > 0;
   } else {
     ready = Boolean(state.picked) && state.selectedLights.size > 0;
@@ -282,9 +275,9 @@ async function start() {
   $("#start").disabled = true;
   try {
     const provider = $("#provider").value;
-    let matchId = "replay";
-    if (provider === "sofascore" || provider === "mock") matchId = state.picked.id;
-    else if (provider === "sofascore_replay") matchId = $("#sofa-event-id").value.trim();
+    const matchId = provider === "sofascore_replay"
+      ? $("#sofa-event-id").value.trim()
+      : state.picked.id;
     const lightSlots = Array.from(state.selectedLights).map((eid) => ({
       entity_id: eid,
       position: state.lightPositions.get(eid) || "both",
@@ -297,10 +290,7 @@ async function start() {
       auto_swap_at_ht: $("#auto-swap").checked,
       tv_delay_s: Number($("#tv-delay").value),
       dry_run: $("#dry-run").checked,
-      replay_path: provider === "replay" ? $("#replay-path").value.trim() : null,
-      replay_speed: provider === "sofascore_replay" || provider === "replay"
-        ? Number($("#replay-speed").value)
-        : 1.0,
+      replay_speed: provider === "sofascore_replay" ? Number($("#replay-speed").value) : 1.0,
     };
     await api("/match/start", { method: "POST", body: JSON.stringify(body) });
     await refreshStatus();
@@ -361,7 +351,6 @@ function renderStatus() {
   const s = state.status;
   if (!s || !s.running) {
     $("#live").classList.add("hidden");
-    $("#mock").classList.add("hidden");
     $("#setup").classList.remove("hidden");
     setPhase("idle");
     if ($("#provider").value === "sofascore" && !state.picked) startLiveRefresh();
@@ -370,11 +359,6 @@ function renderStatus() {
   $("#setup").classList.add("hidden");
   $("#live").classList.remove("hidden");
   stopLiveRefresh();
-
-  // Mock injectors visible only when last_used.provider === "mock".
-  const lastProvider = (state.picked && $("#provider").value) || (state.status && state.status.provider);
-  if ($("#provider").value === "mock") $("#mock").classList.remove("hidden");
-  else $("#mock").classList.add("hidden");
 
   $("#home-name").textContent = (s.home && (s.home.short_name || s.home.name)) || "Home";
   $("#away-name").textContent = (s.away && (s.away.short_name || s.away.name)) || "Away";
@@ -434,15 +418,6 @@ const updateDelay = debounce(async () => {
   try { await api(`/match/tv_delay?seconds=${v}`, { method: "POST" }); } catch { /* ignore */ }
 }, 200);
 
-// ---- mock injection -------------------------------------------------------
-
-async function injectMock(kind, side) {
-  const body = { kind };
-  if (side) body.side = side;
-  try { await api("/debug/inject", { method: "POST", body: JSON.stringify(body) }); }
-  catch (err) { alert("Inject failed: " + err.message); }
-}
-
 // ---- escape ---------------------------------------------------------------
 
 function escape(s) {
@@ -457,17 +432,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#q").addEventListener("input", doSearch);
   $("#provider").addEventListener("change", () => {
     const p = $("#provider").value;
-    $("#replay-row").classList.toggle("hidden", p !== "replay");
     $("#sofa-replay-row").classList.toggle("hidden", p !== "sofascore_replay");
-    $("#replay-speed-row").classList.toggle("hidden", p !== "replay" && p !== "sofascore_replay");
-    // Mock provider: surface the search input directly so the user can pick the
-    // single mock match without going through the live list.
-    const showSearchByDefault = p === "mock";
-    $("#search-row").classList.toggle("hidden", !showSearchByDefault || Boolean(state.picked));
+    $("#replay-speed-row").classList.toggle("hidden", p !== "sofascore_replay");
     applyProviderVisibility();
     refreshStartButton();
   });
-  $("#replay-path").addEventListener("input", refreshStartButton);
   $("#sofa-event-id").addEventListener("input", refreshStartButton);
   $("#sofa-preview").addEventListener("click", (e) => { e.preventDefault(); previewSofaReplay(); });
   $("#replay-speed").addEventListener("input", () => {
@@ -491,9 +460,6 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#tv-delay-readout").textContent = $("#tv-delay").value;
     updateDelay();
   });
-  $$("#mock button").forEach((b) =>
-    b.addEventListener("click", () => injectMock(b.dataset.kind, b.dataset.side))
-  );
   // Restore last-used selection first, then list lights so pre-checked rows render correctly.
   loadLastConfig().finally(loadLights);
   applyProviderVisibility();
